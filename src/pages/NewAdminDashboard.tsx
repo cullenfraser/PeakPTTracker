@@ -87,7 +87,6 @@ export default function NewAdminDashboard() {
   const [addingAdmin, setAddingAdmin] = useState(false)
   const [showAddClient, setShowAddClient] = useState(false)
   const [addingClient, setAddingClient] = useState(false)
-  const [trainerDirectory, setTrainerDirectory] = useState<{ id: string; first_name: string; last_name: string }[]>([])
   const [adminForm, setAdminForm] = useState({
     email: '',
     password: '',
@@ -389,7 +388,7 @@ export default function NewAdminDashboard() {
 
       const completed = sessions?.filter(s => s.status === 'completed').length || 0
       const cancelled = sessions?.filter(s => 
-        ['cancelled', 'no_show'].includes(s.status)
+        ['cancelled', 'no_show'].includes(s.status || '')
       ).length || 0
       const total = sessions?.length || 0
 
@@ -429,8 +428,8 @@ export default function NewAdminDashboard() {
         revenue,
         pendingPay: pendingEntry?.net_amount || 0,
         paymentType: trainer.payment_type || 'per_session',
-        hourlyRate: trainer.hourly_rate,
-        salary: trainer.salary,
+        hourlyRate: trainer.hourly_rate ?? undefined,
+        salary: trainer.salary ?? undefined,
       })
     }
 

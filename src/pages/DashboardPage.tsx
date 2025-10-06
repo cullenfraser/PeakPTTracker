@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
-import AdminDashboardPage from './AdminDashboardPage'
 import TrainerDashboard from './TrainerDashboard'
 
 export default function DashboardPage() {
   const { user } = useAuth()
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null)
+  const [, setIsAdmin] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {

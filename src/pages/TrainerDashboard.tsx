@@ -9,8 +9,6 @@ import {
   Calendar, 
   Users, 
   Clock, 
-  DollarSign, 
-  TrendingUp, 
   Activity, 
   CheckCircle, 
   XCircle,
@@ -33,7 +31,7 @@ export default function TrainerDashboard() {
     hoursThisMonth: 0,
   })
   const [recentSessions, setRecentSessions] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
 
   useEffect(() => {
     fetchTrainerInfo()

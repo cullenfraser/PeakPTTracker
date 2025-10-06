@@ -49,7 +49,8 @@ export default function HoursPage() {
     }
   }
 
-  const formatTime = (time: string) => {
+  const formatTime = (time: string | null) => {
+    if (!time) return '-'
     try {
       const [hours, minutes] = time.split(':')
       const hour = parseInt(hours)
@@ -73,23 +74,8 @@ export default function HoursPage() {
     }
   }
 
-  const groupHoursByWeek = () => {
-    const grouped: { [key: string]: Hours[] } = {}
-    
-    hours.forEach((hour) => {
-      const date = new Date(hour.date)
-      const weekStart = new Date(date)
-      weekStart.setDate(date.getDate() - date.getDay())
-      const weekKey = weekStart.toISOString().split('T')[0]
-      
-      if (!grouped[weekKey]) {
-        grouped[weekKey] = []
-      }
-      grouped[weekKey].push(hour)
-    })
-
-    return grouped
-  }
+  // Helper function removed - not currently used
+  // const groupHoursByWeek = () => { ... }
 
   const getCurrentWeekHours = () => {
     const today = new Date()

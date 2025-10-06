@@ -5,16 +5,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
-import { 
-  Calendar, 
-  Users, 
-  Clock, 
-  DollarSign, 
-  TrendingUp, 
-  Activity, 
-  CheckCircle, 
+import {
+  Calendar,
+  Users,
+  DollarSign,
+  TrendingUp,
+  CheckCircle,
   XCircle,
-  AlertCircle,
   Download,
   BarChart3
 } from 'lucide-react'
@@ -48,7 +45,7 @@ export default function AdminDashboardPage() {
     pendingPayroll: 0,
   })
   const [trainerStats, setTrainerStats] = useState<TrainerStats[]>([])
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
 
   useEffect(() => {
     fetchAdminStats()
@@ -168,7 +165,7 @@ export default function AdminDashboardPage() {
 
         const completed = sessions?.filter(s => s.status === 'completed').length || 0
         const cancelled = sessions?.filter(s => 
-          ['cancelled', 'late_cancellation', 'no_show'].includes(s.status)
+          ['cancelled', 'late_cancellation', 'no_show'].includes(s.status || '')
         ).length || 0
         const total = sessions?.length || 0
 

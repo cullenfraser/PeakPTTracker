@@ -195,6 +195,190 @@ alter table public.quotes
 -- Should already exist from previous migrations
 -- No additional columns needed
 
+-- =====================================================================
+-- 9. ADMIN USERS TABLE
+-- =====================================================================
+create table if not exists public.admin_users (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  first_name text,
+  last_name text,
+  phone text,
+  role text not null default 'admin',
+  is_active boolean not null default true
+);
+
+create unique index if not exists admin_users_user_id_idx
+  on public.admin_users (user_id);
+
+-- Ensure legacy installations cast is_active to boolean
+alter table public.admin_users
+  alter column is_active type boolean
+  using (
+    case
+      when is_active in ('true', 't', '1', 'on', 'yes') then true
+      when is_active in ('false', 'f', '0', 'off', 'no') then false
+      else coalesce(is_active::boolean, true)
+    end
+  );
+
+-- =====================================================================
+-- 10. CLIENTS TABLE
+-- =====================================================================
+create table if not exists public.clients (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  created_by uuid references auth.users(id),
+  updated_at timestamptz,
+  first_name text not null,
+  last_name text not null,
+  email text not null,
+  phone text,
+  address text,
+  city text,
+  province text,
+  postal_code text,
+  country text,
+  company_name text,
+  emergency_contact_name text,
+  emergency_contact_phone text,
+  emergency_contact_relationship text,
+  notes text,
+  is_active boolean default true
+);
+
+create index if not exists clients_email_idx
+  on public.clients (lower(email));
+
+create index if not exists clients_name_idx
+  on public.clients (lower(last_name), lower(first_name));
+
+-- =====================================================================
+-- 11. CLIENT ↔ TRAINER ASSIGNMENTS
+-- =====================================================================
+create table if not exists public.client_trainer_assignments (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  client_id uuid not null references public.clients(id) on delete cascade,
+  trainer_id uuid not null references public.trainers(id) on delete cascade,
+  assigned_date date default current_date,
+  unassigned_date date
+);
+
+create index if not exists client_trainer_assignments_client_idx
+  on public.client_trainer_assignments (client_id);
+
+create index if not exists client_trainer_assignments_trainer_idx
+  on public.client_trainer_assignments (trainer_id)
+  where unassigned_date is null;
+
+-- =====================================================================
+-- 12. HOURS LOGGING TABLE
+-- =====================================================================
+create table if not exists public.hours (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  trainer_id uuid not null references public.trainers(id) on delete cascade,
+  date date not null,
+  day_of_week text not null,
+  opening_time time,
+  closing_time time,
+  hours_worked numeric(6,2) default 0,
+  is_closed boolean not null default false,
+  status text not null default 'pending',
+  notes text
+);
+
+create index if not exists hours_trainer_date_idx
+  on public.hours (trainer_id, date desc);
+
+alter table public.hours enable row level security;
+
+drop policy if exists hours_owner_select on public.hours;
+create policy hours_owner_select
+  on public.hours for select
+  using (
+    trainer_id in (select id from public.trainers where user_id = auth.uid())
+    or exists (
+      select 1 from public.admin_users au
+      where au.user_id = auth.uid() and au.is_active is true
+    )
+  );
+
+drop policy if exists hours_owner_insert on public.hours;
+create policy hours_owner_insert
+  on public.hours for insert
+  with check (
+    trainer_id in (select id from public.trainers where user_id = auth.uid())
+  );
+
+drop policy if exists hours_owner_update on public.hours;
+create policy hours_owner_update
+  on public.hours for update
+  using (
+    trainer_id in (select id from public.trainers where user_id = auth.uid())
+    or exists (
+      select 1 from public.admin_users au
+      where au.user_id = auth.uid() and au.is_active is true
+    )
+  )
+  with check (
+    trainer_id in (select id from public.trainers where user_id = auth.uid())
+    or exists (
+      select 1 from public.admin_users au
+      where au.user_id = auth.uid() and au.is_active is true
+    )
+  );
+
+-- =====================================================================
+-- 13. PAYROLL PERIODS & ENTRIES
+-- =====================================================================
+create table if not exists public.payroll_periods (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  period_type text not null,
+  start_date date not null,
+  end_date date not null,
+  status text not null default 'draft',
+  total_amount numeric(12,2) not null default 0
+);
+
+create index if not exists payroll_periods_start_date_idx
+  on public.payroll_periods (start_date desc);
+
+create table if not exists public.payroll_entries (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  payroll_period_id uuid not null references public.payroll_periods(id) on delete cascade,
+  trainer_id uuid not null references public.trainers(id) on delete cascade,
+  gross_amount numeric(12,2) not null default 0,
+  net_amount numeric(12,2) not null default 0,
+  status text not null default 'pending'
+);
+
+create index if not exists payroll_entries_period_idx
+  on public.payroll_entries (payroll_period_id);
+
+create index if not exists payroll_entries_trainer_idx
+  on public.payroll_entries (trainer_id);
+
+-- =====================================================================
+-- 14. TRAINER PAYROLL (legacy summary)
+-- =====================================================================
+create table if not exists public.trainer_payroll (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  trainer_id uuid not null references public.trainers(id) on delete cascade,
+  amount numeric(12,2) not null default 0,
+  status text not null default 'pending',
+  period_start date,
+  period_end date
+);
+
+create index if not exists trainer_payroll_trainer_idx
+  on public.trainer_payroll (trainer_id);
+
 COMMIT;
 
 -- =====================================================================

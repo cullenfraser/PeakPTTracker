@@ -58,6 +58,9 @@ export type Database = {
           participant_contract_count: number | null
           participant_contract_signed_count: number | null
           notes: string | null
+          emergency_contact_name: string | null
+          emergency_contact_phone: string | null
+          emergency_contact_relationship: string | null
         }
         Insert: {
           id?: string
@@ -105,6 +108,9 @@ export type Database = {
           participant_contract_count?: number | null
           participant_contract_signed_count?: number | null
           notes?: string | null
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          emergency_contact_relationship?: string | null
         }
         Update: {
           id?: string
@@ -152,6 +158,9 @@ export type Database = {
           participant_contract_count?: number | null
           participant_contract_signed_count?: number | null
           notes?: string | null
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          emergency_contact_relationship?: string | null
         }
         Relationships: [
           {
@@ -264,6 +273,55 @@ export type Database = {
             foreignKeyName: 'participant_contracts_quote_id_fkey'
             columns: ['quote_id']
             referencedRelation: 'quotes'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      contract_participants: {
+        Row: {
+          id: string
+          created_at: Timestamp | null
+          contract_id: string
+          participant_index: number
+          full_name: string
+          email: string | null
+          phone: string | null
+          payment_share: number | null
+          square_customer_id: string | null
+          square_invoice_id: string | null
+          created_by: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: Timestamp | null
+          contract_id: string
+          participant_index: number
+          full_name: string
+          email?: string | null
+          phone?: string | null
+          payment_share?: number | null
+          square_customer_id?: string | null
+          square_invoice_id?: string | null
+          created_by?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: Timestamp | null
+          contract_id?: string
+          participant_index?: number
+          full_name?: string
+          email?: string | null
+          phone?: string | null
+          payment_share?: number | null
+          square_customer_id?: string | null
+          square_invoice_id?: string | null
+          created_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'contract_participants_contract_id_fkey'
+            columns: ['contract_id']
+            referencedRelation: 'contracts'
             referencedColumns: ['id']
           }
         ]
@@ -400,45 +458,36 @@ export type Database = {
           id: string
           created_at: Timestamp | null
           created_by: string | null
-          contract_id: string
-          participant_contract_id: string
-          signer_name: string
-          signer_role: string | null
+          participant_contract_id: string | null
           signature_data: string | null
-          signed_at: string | null
+          signed_date: string | null
+          signer_name: string | null
+          signer_email: string | null
           signer_ip: string | null
         }
         Insert: {
           id?: string
           created_at?: Timestamp | null
           created_by?: string | null
-          contract_id: string
-          participant_contract_id: string
-          signer_name: string
-          signer_role?: string | null
+          participant_contract_id?: string | null
           signature_data?: string | null
-          signed_at?: string | null
+          signed_date?: string | null
+          signer_name?: string | null
+          signer_email?: string | null
           signer_ip?: string | null
         }
         Update: {
           id?: string
           created_at?: Timestamp | null
           created_by?: string | null
-          contract_id?: string
-          participant_contract_id?: string
-          signer_name?: string
-          signer_role?: string | null
+          participant_contract_id?: string | null
           signature_data?: string | null
-          signed_at?: string | null
+          signed_date?: string | null
+          signer_name?: string | null
+          signer_email?: string | null
           signer_ip?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: 'contract_signatures_contract_id_fkey'
-            columns: ['contract_id']
-            referencedRelation: 'contracts'
-            referencedColumns: ['id']
-          },
           {
             foreignKeyName: 'contract_signatures_participant_contract_id_fkey'
             columns: ['participant_contract_id']
@@ -446,6 +495,39 @@ export type Database = {
             referencedColumns: ['id']
           }
         ]
+      }
+      admin_users: {
+        Row: {
+          id: string
+          created_at: Timestamp | null
+          user_id: string
+          first_name: string | null
+          last_name: string | null
+          phone: string | null
+          role: string
+          is_active: boolean
+        }
+        Insert: {
+          id?: string
+          created_at?: Timestamp | null
+          user_id: string
+          first_name?: string | null
+          last_name?: string | null
+          phone?: string | null
+          role?: string
+          is_active?: boolean
+        }
+        Update: {
+          id?: string
+          created_at?: Timestamp | null
+          user_id?: string
+          first_name?: string | null
+          last_name?: string | null
+          phone?: string | null
+          role?: string
+          is_active?: boolean
+        }
+        Relationships: []
       }
       trainers: {
         Row: {
@@ -553,6 +635,149 @@ export type Database = {
           }
         ]
       }
+      trainer_payroll: {
+        Row: {
+          id: string
+          created_at: Timestamp | null
+          trainer_id: string
+          amount: number
+          status: string
+          period_start: string | null
+          period_end: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: Timestamp | null
+          trainer_id: string
+          amount?: number
+          status?: string
+          period_start?: string | null
+          period_end?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: Timestamp | null
+          trainer_id?: string
+          amount?: number
+          status?: string
+          period_start?: string | null
+          period_end?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'trainer_payroll_trainer_id_fkey'
+            columns: ['trainer_id']
+            referencedRelation: 'trainers'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      client_trainer_assignments: {
+        Row: {
+          id: string
+          created_at: Timestamp | null
+          client_id: string
+          trainer_id: string
+          assigned_date: string | null
+          unassigned_date: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: Timestamp | null
+          client_id: string
+          trainer_id: string
+          assigned_date?: string | null
+          unassigned_date?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: Timestamp | null
+          client_id?: string
+          trainer_id?: string
+          assigned_date?: string | null
+          unassigned_date?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'client_trainer_assignments_client_id_fkey'
+            columns: ['client_id']
+            referencedRelation: 'clients'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'client_trainer_assignments_trainer_id_fkey'
+            columns: ['trainer_id']
+            referencedRelation: 'trainers'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      clients: {
+        Row: {
+          id: string
+          created_at: Timestamp | null
+          created_by: string | null
+          updated_at: Timestamp | null
+          first_name: string
+          last_name: string
+          email: string
+          phone: string | null
+          address: string | null
+          city: string | null
+          province: string | null
+          postal_code: string | null
+          country: string | null
+          company_name: string | null
+          emergency_contact_name: string | null
+          emergency_contact_phone: string | null
+          emergency_contact_relationship: string | null
+          notes: string | null
+          is_active: boolean | null
+        }
+        Insert: {
+          id?: string
+          created_at?: Timestamp | null
+          created_by?: string | null
+          updated_at?: Timestamp | null
+          first_name: string
+          last_name: string
+          email: string
+          phone?: string | null
+          address?: string | null
+          city?: string | null
+          province?: string | null
+          postal_code?: string | null
+          country?: string | null
+          company_name?: string | null
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          emergency_contact_relationship?: string | null
+          notes?: string | null
+          is_active?: boolean | null
+        }
+        Update: {
+          id?: string
+          created_at?: Timestamp | null
+          created_by?: string | null
+          updated_at?: Timestamp | null
+          first_name?: string
+          last_name?: string
+          email?: string
+          phone?: string | null
+          address?: string | null
+          city?: string | null
+          province?: string | null
+          postal_code?: string | null
+          country?: string | null
+          company_name?: string | null
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          emergency_contact_relationship?: string | null
+          notes?: string | null
+          is_active?: boolean | null
+        }
+        Relationships: []
+      }
       training_sessions: {
         Row: {
           id: string
@@ -626,10 +851,132 @@ export type Database = {
           }
         ]
       }
-    }
+      hours: {
+        Row: {
+          id: string
+          created_at: Timestamp | null
+          trainer_id: string
+          date: string
+          day_of_week: string
+          opening_time: string | null
+          closing_time: string | null
+          hours_worked: number | null
+          is_closed: boolean
+          status: string
+          notes: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: Timestamp | null
+          trainer_id: string
+          date: string
+          day_of_week: string
+          opening_time?: string | null
+          closing_time?: string | null
+          hours_worked?: number | null
+          is_closed?: boolean
+          status?: string
+          notes?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: Timestamp | null
+          trainer_id?: string
+          date?: string
+          day_of_week?: string
+          opening_time?: string | null
+          closing_time?: string | null
+          hours_worked?: number | null
+          is_closed?: boolean
+          status?: string
+          notes?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'hours_trainer_id_fkey'
+            columns: ['trainer_id']
+            referencedRelation: 'trainers'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      payroll_periods: {
+        Row: {
+          id: string
+          created_at: Timestamp | null
+          period_type: string
+          start_date: string
+          end_date: string
+          status: string
+          total_amount: number
+        }
+        Insert: {
+          id?: string
+          created_at?: Timestamp | null
+          period_type: string
+          start_date: string
+          end_date: string
+          status?: string
+          total_amount?: number
+        }
+        Update: {
+          id?: string
+          created_at?: Timestamp | null
+          period_type?: string
+          start_date?: string
+          end_date?: string
+          status?: string
+          total_amount?: number
+        }
+        Relationships: []
+      }
+      payroll_entries: {
+        Row: {
+          id: string
+          created_at: Timestamp | null
+          payroll_period_id: string
+          trainer_id: string
+          gross_amount: number
+          net_amount: number
+          status: string
+        }
+        Insert: {
+          id?: string
+          created_at?: Timestamp | null
+          payroll_period_id: string
+          trainer_id: string
+          gross_amount?: number
+          net_amount?: number
+          status?: string
+        }
+        Update: {
+          id?: string
+          created_at?: Timestamp | null
+          payroll_period_id?: string
+          trainer_id?: string
+          gross_amount?: number
+          net_amount?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'payroll_entries_payroll_period_id_fkey'
+            columns: ['payroll_period_id']
+            referencedRelation: 'payroll_periods'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'payroll_entries_trainer_id_fkey'
+            columns: ['trainer_id']
+            referencedRelation: 'trainers'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+    },
     Views: {}
     Functions: {}
     Enums: {}
     CompositeTypes: {}
   }
-}
+};

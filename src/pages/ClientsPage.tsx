@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
-import { Users, Search, Filter, Download } from 'lucide-react'
+import { Users, Search, Download } from 'lucide-react'
 
 interface Client {
   id: string

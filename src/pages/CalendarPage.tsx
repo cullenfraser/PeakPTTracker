@@ -1,14 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Calendar as BigCalendar, dateFnsLocalizer, View } from 'react-big-calendar'
-import { format, parse, startOfWeek, getDay, addHours } from 'date-fns'
+import { format, parse, startOfWeek, getDay } from 'date-fns'
 import Layout from '@/components/Layout'
 import { Button } from '@/components/ui/button'
-import { Select } from '@/components/ui/select'
 import { Card } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { Calendar as CalendarIcon, Plus, Filter } from 'lucide-react'
+import { Calendar as CalendarIcon, Plus } from 'lucide-react'
 import AddSessionModal from '@/components/AddSessionModal'
 import AttendanceModal from '@/components/AttendanceModal'
 import 'react-big-calendar/lib/css/react-big-calendar.css'
@@ -28,19 +27,18 @@ const localizer = dateFnsLocalizer({
 
 interface TrainingSession {
   id: string
-  contract_id: string
+  contract_id: string | null
   trainer_id: string
   session_date: string
   start_time: string
   end_time: string
-  session_number: number
+  session_number: number | null
   status: 'scheduled' | 'completed' | 'cancelled' | 'late_cancellation' | 'no_show'
   participants_attended: any[]
   attendance_notes: string | null
   trainer?: {
     first_name: string
     last_name: string
-    calendar_color: string
   }
   contract?: {
     customer_name: string
@@ -52,7 +50,6 @@ interface Trainer {
   id: string
   first_name: string
   last_name: string
-  calendar_color: string
 }
 
 export default function CalendarPage() {
@@ -65,7 +62,7 @@ export default function CalendarPage() {
   const [selectedTrainers, setSelectedTrainers] = useState<string[]>([])
   const [isAdmin, setIsAdmin] = useState(false)
   const [currentTrainerId, setCurrentTrainerId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showAttendanceModal, setShowAttendanceModal] = useState(false)
   const [selectedSession, setSelectedSession] = useState<TrainingSession | null>(null)
@@ -127,7 +124,7 @@ export default function CalendarPage() {
       return
     }
 
-    setTrainers(data || [])
+    setTrainers((data as Trainer[]) || [])
   }
 
   const fetchSessions = async () => {
@@ -137,7 +134,7 @@ export default function CalendarPage() {
         .from('training_sessions')
         .select(`
           *,
-          trainer:trainers(first_name, last_name, calendar_color),
+          trainer:trainers(first_name, last_name),
           contract:contracts(customer_name, participants)
         `)
         .order('session_date')
@@ -156,7 +153,7 @@ export default function CalendarPage() {
 
       if (error) throw error
 
-      setSessions(data || [])
+      setSessions((data as TrainingSession[]) || [])
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -192,7 +189,7 @@ export default function CalendarPage() {
 
   const eventStyleGetter = (event: any) => {
     const session = event.resource as TrainingSession
-    const color = session.trainer?.calendar_color || '#3FAE52'
+    const color = '#3FAE52' // Default green color for all sessions
     
     let backgroundColor = color
     let opacity = 1
@@ -245,7 +242,6 @@ export default function CalendarPage() {
           <div className="flex gap-3 items-center">
             {isAdmin && (
               <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4" />
                 <div className="relative">
                   <Button
                     variant="outline"
@@ -274,10 +270,6 @@ export default function CalendarPage() {
                               }
                             }}
                             className="rounded"
-                          />
-                          <div
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: trainer.calendar_color }}
                           />
                           <span className="text-sm">{trainer.first_name} {trainer.last_name}</span>
                         </label>
