@@ -16,6 +16,205 @@ import {
   BarChart3
 } from 'lucide-react'
 
+interface ContractRecord {
+  id: string
+  contract_number: string | null
+  customer_name: string | null
+  customer_email: string | null
+  customer_phone: string | null
+  status: string | null
+  total_sessions: number | null
+  start_date: string | null
+  end_date: string | null
+  created_at: string | null
+  total_amount: number | null
+  payment_amount?: number | null
+  trainers?:
+    | {
+        first_name: string | null
+        last_name: string | null
+      }
+    | Array<{
+        first_name: string | null
+        last_name: string | null
+      }>
+    | null
+}
+
+interface AggregatedClient {
+  key: string
+  name: string | null
+  email: string | null
+  phone: string | null
+  status: string | null
+  totalSessions: number
+  contractCount: number
+  latestStartDate: string | null
+  latestEndDate: string | null
+  latestCreated: string | null
+  trainerName?: string | null
+  contractIds: string[]
+  contractNumbers: string[]
+  remainingSessions?: number
+}
+
+const STATUS_PRIORITY: Record<string, number> = {
+  active: 3,
+  pending: 2,
+  completed: 1,
+  cancelled: 0,
+}
+
+const getStatusPriority = (value?: string | null) => {
+  if (!value) return -1
+  return STATUS_PRIORITY[value.toLowerCase()] ?? -1
+}
+
+const normalizeEmail = (email?: string | null) => {
+  const trimmed = email?.trim().toLowerCase()
+  return trimmed && trimmed.length > 0 ? trimmed : null
+}
+
+const pickLatest = (current: string | null, incoming: string | null) => {
+  if (!incoming) return current
+  if (!current) return incoming
+  return new Date(incoming).getTime() > new Date(current).getTime() ? incoming : current
+}
+
+const getTrainerName = (contract: ContractRecord) => {
+  const trainer = Array.isArray(contract.trainers) ? contract.trainers[0] : contract.trainers
+  if (!trainer) return null
+  const first = trainer.first_name?.trim() ?? ''
+  const last = trainer.last_name?.trim() ?? ''
+  const combined = `${first} ${last}`.trim()
+  return combined.length > 0 ? combined : null
+}
+
+const normalizeContractStatus = (
+  contract: ContractRecord,
+  totalSessions: number,
+  completedSessions: number,
+): string | null => {
+  const raw = (contract.status ?? '').toLowerCase()
+
+  if (['cancelled', 'expired'].includes(raw)) {
+    return 'closed'
+  }
+
+  if (raw === 'completed' || (totalSessions > 0 && completedSessions >= totalSessions)) {
+    return 'completed'
+  }
+
+  if (completedSessions > 0) {
+    return 'active'
+  }
+
+  return 'pending'
+}
+
+const aggregateClients = (
+  rows: ContractRecord[],
+  completedByContract: Map<string, number>,
+  totalSessionsByContract: Map<string, number>,
+): AggregatedClient[] => {
+  const map = new Map<string, AggregatedClient>()
+
+  const getSortTime = (contract: ContractRecord) => {
+    const created = contract.created_at ? new Date(contract.created_at).getTime() : Number.NaN
+    if (!Number.isNaN(created)) return created
+    const start = contract.start_date ? new Date(contract.start_date).getTime() : Number.NaN
+    if (!Number.isNaN(start)) return start
+    const end = contract.end_date ? new Date(contract.end_date).getTime() : Number.NaN
+    if (!Number.isNaN(end)) return end
+    return 0
+  }
+
+  const sortedRows = [...rows].sort((a, b) => getSortTime(a) - getSortTime(b))
+
+  sortedRows.forEach((contract) => {
+    const key = normalizeEmail(contract.customer_email) ?? `${contract.customer_name}|${contract.customer_phone ?? contract.id}`
+    const trainerName = getTrainerName(contract)
+    const totalSessions = contract.total_sessions ?? 0
+    const completedSessions = completedByContract.get(contract.id) ?? 0
+
+    const status = normalizeContractStatus(contract, totalSessions, completedSessions)
+
+    const startDate = contract.start_date ?? null
+    const endDate = contract.end_date ?? null
+    const createdAt = contract.created_at ?? null
+    const contractNumber = contract.contract_number ?? 'Unknown'
+
+    const existing = map.get(key)
+    if (existing) {
+      const alreadyHas = existing.contractIds.includes(contract.id) || existing.contractNumbers.includes(contractNumber)
+      if (!alreadyHas) {
+        existing.totalSessions += totalSessions
+        existing.contractCount += 1
+        existing.latestStartDate = pickLatest(existing.latestStartDate, startDate)
+        existing.latestEndDate = pickLatest(existing.latestEndDate, endDate)
+        existing.latestCreated = pickLatest(existing.latestCreated, createdAt)
+        existing.contractIds.push(contract.id)
+        existing.contractNumbers.push(contractNumber)
+      }
+
+      const incomingPriority = getStatusPriority(status)
+      const existingPriority = getStatusPriority(existing.status)
+      if (incomingPriority > existingPriority) {
+        existing.status = status
+      }
+      if (contract.customer_name && !existing.name) existing.name = contract.customer_name
+      if (contract.customer_email && !existing.email) existing.email = contract.customer_email
+      if (contract.customer_phone && !existing.phone) existing.phone = contract.customer_phone
+      if (trainerName) {
+        if (!existing.trainerName || existing.trainerName === 'Multiple') {
+          existing.trainerName = trainerName
+        } else if (existing.trainerName !== trainerName) {
+          existing.trainerName = 'Multiple'
+        }
+      }
+    } else {
+      map.set(key, {
+        key,
+        name: contract.customer_name ?? null,
+        email: contract.customer_email ?? null,
+        phone: contract.customer_phone ?? null,
+        status,
+        totalSessions,
+        contractCount: 1,
+        latestStartDate: startDate,
+        latestEndDate: endDate,
+        latestCreated: createdAt,
+        trainerName,
+        contractIds: [contract.id],
+        contractNumbers: [contractNumber],
+      })
+    }
+  })
+
+  for (const client of map.values()) {
+    let remaining = 0
+    for (const id of client.contractIds) {
+      const total = totalSessionsByContract.get(id) ?? 0
+      if (total <= 0) continue
+      const completed = completedByContract.get(id) ?? 0
+      remaining += Math.max(0, total - completed)
+    }
+    client.remainingSessions = remaining
+    if (remaining === 0) client.status = 'Expired'
+    else if (remaining <= 10) client.status = 'Expiring Soon'
+    else client.status = 'Active'
+  }
+
+  return Array.from(map.values()).sort((a, b) => {
+    const aDate = pickLatest(a.latestCreated, a.latestStartDate)
+    const bDate = pickLatest(b.latestCreated, b.latestStartDate)
+    if (!aDate && !bDate) return 0
+    if (!bDate) return -1
+    if (!aDate) return 1
+    return new Date(bDate).getTime() - new Date(aDate).getTime()
+  })
+}
+
 interface TrainerStats {
   id: string
   name: string
@@ -72,9 +271,43 @@ export default function AdminDashboardPage() {
       // Clients
       const { data: contracts } = await supabase
         .from('contracts')
-        .select('*')
+        .select('*, trainers(first_name, last_name)')
 
-      const activeContracts = contracts?.filter(c => c.status === 'active') || []
+      const contractRows = (contracts ?? []) as unknown as ContractRecord[]
+
+      const totalSessionsByContract = new Map<string, number>()
+      for (const contract of contractRows) {
+        if (!contract?.id) continue
+        totalSessionsByContract.set(contract.id, contract.total_sessions ?? 0)
+      }
+
+      const completedByContract = new Map<string, number>()
+      const contractIds = contractRows.map((contract) => contract.id).filter((id) => typeof id === 'string' && id.length > 0)
+
+      if (contractIds.length > 0) {
+        const { data: sessionRows } = await supabase
+          .from('training_sessions')
+          .select('contract_id, status')
+          .in('contract_id', contractIds)
+
+        for (const session of (sessionRows ?? []) as Array<{ contract_id: string | null; status: string | null }>) {
+          if (!session?.contract_id) continue
+          if ((session.status ?? '').toLowerCase() !== 'completed') continue
+          completedByContract.set(
+            session.contract_id,
+            (completedByContract.get(session.contract_id) ?? 0) + 1,
+          )
+        }
+      }
+
+      const aggregatedClients = aggregateClients(contractRows, completedByContract, totalSessionsByContract)
+      const ACTIVE_STATUSES = new Set(['active', 'expiring soon'])
+      const activeClientCount = aggregatedClients.filter((client) =>
+        ACTIVE_STATUSES.has((client.status ?? '').toLowerCase()),
+      ).length
+      const totalClientCount = aggregatedClients.length
+
+      const activeContracts = contractRows.filter((c) => (c.status ?? '').toLowerCase() === 'active')
 
       // Today's sessions
       const { data: todaySessions } = await supabase
@@ -124,8 +357,8 @@ export default function AdminDashboardPage() {
       setStats({
         totalTrainers: trainers?.length || 0,
         activeTrainers: activeTrainers.length,
-        totalClients: contracts?.length || 0,
-        activeClients: activeContracts.length,
+        totalClients: totalClientCount,
+        activeClients: activeClientCount,
         todaySessions: todaySessions?.length || 0,
         weekSessions: weekSessions?.length || 0,
         monthSessions: monthSessions?.length || 0,
@@ -153,6 +386,125 @@ export default function AdminDashboardPage() {
       const monthStart = new Date()
       monthStart.setDate(1)
 
+      // Build aggregated client groups (matching Clients page grouping) and trainer names per group
+      const { data: contracts } = await supabase
+        .from('contracts')
+        .select('id, customer_name, customer_email, customer_phone, total_sessions, status, created_at, start_date, end_date, trainer_id, trainers(first_name, last_name)')
+
+      const baseRows = (contracts ?? []) as Array<{
+        id: string
+        customer_name: string | null
+        customer_email: string | null
+        customer_phone: string | null
+        total_sessions: number | null
+        status: string | null
+        created_at: string | null
+        start_date: string | null
+        end_date: string | null
+        trainer_id?: string | null
+        trainers?: { first_name?: string | null; last_name?: string | null } | null
+      }>
+      const contractIds = baseRows.map(r => r.id)
+
+      const getPrimaryTrainerName = (row: any) => {
+        const t = row?.trainers ?? null
+        const first = (t?.first_name ?? '').trim()
+        const last = (t?.last_name ?? '').trim()
+        const label = `${first} ${last}`.trim()
+        return label.length > 0 ? label : null
+      }
+
+      const { data: participantRows } = await supabase
+        .from('participant_contracts')
+        .select('contract_id, participant_email')
+        .in('contract_id', contractIds)
+
+      const augmented = [...baseRows]
+      for (const p of (participantRows ?? [])) {
+        const parent = baseRows.find(b => b.id === p.contract_id)
+        if (!parent) continue
+        const email = (p.participant_email ?? '').trim()
+        if (!email) continue
+        augmented.push({
+          ...parent,
+          customer_email: email,
+        })
+      }
+
+      const emailPairs = augmented.reduce<{ raw: string; normalized: string }[]>((acc, row) => {
+        const raw = (row.customer_email ?? '').trim()
+        if (!raw) return acc
+        acc.push({ raw, normalized: normalizeEmail(raw) ?? raw.toLowerCase() })
+        return acc
+      }, [])
+
+      const rawEmails = Array.from(new Set(emailPairs.map((p) => p.raw)))
+
+      const trainerAssignmentsByEmail = new Map<string, string[]>()
+      const trainerIdsByEmail = new Map<string, string[]>()
+      if (rawEmails.length > 0) {
+        const { data: clientAssigns } = await supabase
+          .from('clients')
+          .select('email, client_trainer_assignments(trainer_id, trainers(first_name, last_name), unassigned_date)')
+          .in('email', rawEmails)
+
+        clientAssigns?.forEach((client: any) => {
+          const nEmail = normalizeEmail(client?.email)
+          if (!nEmail) return
+          const assigns = (Array.isArray(client?.client_trainer_assignments) ? client.client_trainer_assignments : [])
+          const ids = assigns
+            .filter((a: any) => !a?.unassigned_date && a?.trainer_id)
+            .map((a: any) => a.trainer_id as string)
+          if (ids.length > 0) trainerIdsByEmail.set(nEmail, Array.from(new Set(ids)))
+          const names = assigns
+            .filter((a: any) => !a?.unassigned_date)
+            .map((a: any) => {
+              const t = Array.isArray(a.trainers) ? a.trainers[0] : a.trainers
+              const first = (t?.first_name ?? '').trim()
+              const last = (t?.last_name ?? '').trim()
+              const label = `${first} ${last}`.trim()
+              return label.length > 0 ? label : null
+            })
+            .filter((v: any): v is string => Boolean(v))
+          if (names.length > 0) trainerAssignmentsByEmail.set(nEmail, Array.from(new Set(names)))
+        })
+      }
+
+      // Build per-contract totals and completed counts
+      const totalSessionsByContract = new Map<string, number>()
+      baseRows.forEach((r) => totalSessionsByContract.set(r.id, r.total_sessions ?? 0))
+
+      const { data: sess } = await supabase
+        .from('training_sessions')
+        .select('contract_id, status')
+        .in('contract_id', contractIds)
+
+      const completedByContract = new Map<string, number>()
+      for (const s of (sess ?? []) as Array<{ contract_id: string; status: string }>) {
+        if ((s.status || '').toLowerCase() === 'completed') {
+          completedByContract.set(s.contract_id, (completedByContract.get(s.contract_id) ?? 0) + 1)
+        }
+      }
+
+      const groups = new Map<string, { trainerNames: string[]; trainerIds: Set<string>; contractIds: Set<string> }>()
+      augmented.forEach((row) => {
+        const key = normalizeEmail(row.customer_email) ?? `${row.customer_name}|${row.customer_phone ?? row.id}`
+        const existing = groups.get(key) ?? { trainerNames: [], trainerIds: new Set<string>(), contractIds: new Set<string>() }
+        const primary = getPrimaryTrainerName(row)
+        const email = normalizeEmail(row.customer_email)
+        const emailNames = email ? (trainerAssignmentsByEmail.get(email) ?? []) : []
+        const emailIds = email ? (trainerIdsByEmail.get(email) ?? []) : []
+        const merged = new Set<string>([...existing.trainerNames, ...(primary ? [primary] : []), ...emailNames])
+        emailIds.forEach((tid) => existing.trainerIds.add(tid))
+        if (row.trainer_id) existing.trainerIds.add(row.trainer_id)
+        existing.contractIds.add(row.id)
+        groups.set(key, { trainerNames: Array.from(merged), trainerIds: existing.trainerIds, contractIds: existing.contractIds })
+      })
+
+      const trainerIdToName = new Map<string, string>(
+        trainers.map((t: any) => [t.id, `${(t.first_name ?? '').trim()} ${(t.last_name ?? '').trim()}`.trim()])
+      )
+
       const trainerPerformance: TrainerStats[] = []
 
       for (const trainer of trainers) {
@@ -169,13 +521,27 @@ export default function AdminDashboardPage() {
         ).length || 0
         const total = sessions?.length || 0
 
-        // Get active clients
-        const { data: clients } = await supabase
-          .from('client_trainer_assignments')
-          .select('*')
-          .eq('trainer_id', trainer.id)
-
         const completionRate = total > 0 ? (completed / total) * 100 : 0
+        let clientCount = 0
+        {
+          const isActiveGroup = (g: { contractIds: Set<string> }) => {
+            let remaining = 0
+            for (const id of g.contractIds) {
+              const total = totalSessionsByContract.get(id) ?? 0
+              if (total <= 0) continue
+              const done = completedByContract.get(id) ?? 0
+              remaining += Math.max(0, total - done)
+            }
+            if (remaining === 0) return false
+            // Active or Expiring Soon
+            return true
+          }
+          groups.forEach((value) => {
+            const matchesById = value.trainerIds.has(trainer.id)
+            const matchesByName = (trainerIdToName.get(trainer.id) ?? '') && value.trainerNames.includes(trainerIdToName.get(trainer.id)!)
+            if (matchesById || matchesByName) clientCount += 1
+          })
+        }
 
         trainerPerformance.push({
           id: trainer.id,
@@ -183,12 +549,11 @@ export default function AdminDashboardPage() {
           totalSessions: total,
           completedSessions: completed,
           cancelledSessions: cancelled,
-          activeClients: clients?.length || 0,
+          activeClients: clientCount,
           completionRate,
-          revenue: 0, // TODO: Calculate from contracts
+          revenue: 0,
         })
       }
-
       setTrainerStats(trainerPerformance.sort((a, b) => b.completionRate - a.completionRate))
     } catch (error) {
       console.error('Error fetching trainer performance:', error)

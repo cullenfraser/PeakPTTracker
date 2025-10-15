@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/use-toast'
 import { formatCurrency } from '@/lib/utils'
 import { Calculator, Users, DollarSign } from 'lucide-react'
 
-const MAX_PARTICIPANTS = 3
+const MAX_PARTICIPANTS = 4
 
 type CalculatorFormData = {
   startDate: string
@@ -255,7 +255,7 @@ export default function CalculatorPage() {
               <div className="space-y-2">
                 <Label htmlFor="participants">
                   <Users className="inline h-4 w-4 mr-1" />
-                  Participants (1-3)
+                  Participants (1-4)
                 </Label>
                 <Input
                   id="participants"

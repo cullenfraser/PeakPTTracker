@@ -75,6 +75,23 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const { data: existingUser, error: fetchError } = await supabaseAdmin.auth.admin.listUsers({
+      page: 1,
+      perPage: 1,
+      email: payload.email,
+    })
+
+    if (fetchError) {
+      throw fetchError
+    }
+
+    if (existingUser?.users?.some(user => (user.email ?? '').toLowerCase() === payload.email.toLowerCase())) {
+      return new Response(JSON.stringify({ error: 'Email already in use' }), {
+        status: 409,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
     const { data: userData, error: userError } = await supabaseAdmin.auth.admin.createUser({
       email: payload.email,
       password: payload.password,
@@ -90,8 +107,10 @@ Deno.serve(async (req) => {
       email: payload.email,
       first_name: payload.first_name,
       last_name: payload.last_name,
+      display_name: `${payload.first_name} ${payload.last_name}`.trim(),
       phone: payload.phone ?? null,
       payment_type: payload.payment_type,
+      status: 'active',
     }
 
     if (typeof payload.hourly_rate === 'number') {

@@ -1,6 +1,12 @@
 [build]
   command = "npm run build"
   publish = "dist"
+  functions = "netlify/functions"
+
+[context.dev.environment]
+  SQUARE_APPLICATION_ID = "sandbox-sq0idb-HM3ApHT4WPK3mYjSWwiMwg"
+  SQUARE_ACCESS_TOKEN = "EAAAl7HXO4vb5gV99GVOYFN6l9k-Jy0t1XlF5ZvzYXHOm6JUs0Fxv1AGl3ncGZ8-"
+  SQUARE_LOCATION_ID = "L36AC2Z4V0Y2V"
 
 [[redirects]]
   from = "/*"

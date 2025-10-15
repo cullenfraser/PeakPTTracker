@@ -61,6 +61,7 @@ export type Database = {
           emergency_contact_name: string | null
           emergency_contact_phone: string | null
           emergency_contact_relationship: string | null
+          trainer_id: string | null
         }
         Insert: {
           id?: string
@@ -111,6 +112,7 @@ export type Database = {
           emergency_contact_name?: string | null
           emergency_contact_phone?: string | null
           emergency_contact_relationship?: string | null
+          trainer_id?: string | null
         }
         Update: {
           id?: string
@@ -161,12 +163,126 @@ export type Database = {
           emergency_contact_name?: string | null
           emergency_contact_phone?: string | null
           emergency_contact_relationship?: string | null
+          trainer_id?: string | null
         }
         Relationships: [
           {
             foreignKeyName: 'contracts_quote_id_fkey'
             columns: ['quote_id']
             referencedRelation: 'quotes'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      contract_invoice_instances: {
+        Row: {
+          id: string
+          created_at: Timestamp | null
+          contract_id: string
+          participant_contract_id: string
+          square_customer_id: string | null
+          square_invoice_id: string | null
+          square_invoice_number: string | null
+          square_public_url: string | null
+          installment_index: number
+          installment_total_cents: number
+          participant_share_cents: number
+          due_date: string
+          scheduled_at: string | null
+          status: string
+          metadata: Json | null
+        }
+        Insert: {
+          id?: string
+          created_at?: Timestamp | null
+          contract_id: string
+          participant_contract_id: string
+          square_customer_id?: string | null
+          square_invoice_id?: string | null
+          square_invoice_number?: string | null
+          square_public_url?: string | null
+          installment_index: number
+          installment_total_cents: number
+          participant_share_cents: number
+          due_date: string
+          scheduled_at?: string | null
+          status?: string
+          metadata?: Json | null
+        }
+        Update: {
+          id?: string
+          created_at?: Timestamp | null
+          contract_id?: string
+          participant_contract_id?: string
+          square_customer_id?: string | null
+          square_invoice_id?: string | null
+          square_invoice_number?: string | null
+          square_public_url?: string | null
+          installment_index?: number
+          installment_total_cents?: number
+          participant_share_cents?: number
+          due_date?: string
+          scheduled_at?: string | null
+          status?: string
+          metadata?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'contract_invoice_instances_contract_id_fkey'
+            columns: ['contract_id']
+            referencedRelation: 'contracts'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'contract_invoice_instances_participant_contract_id_fkey'
+            columns: ['participant_contract_id']
+            referencedRelation: 'participant_contracts'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      invoice_notifications: {
+        Row: {
+          id: string
+          created_at: Timestamp
+          invoice_instance_id: string
+          contract_id: string
+          status: string
+          message: string
+          read_at: Timestamp | null
+          metadata: Json | null
+        }
+        Insert: {
+          id?: string
+          created_at?: Timestamp
+          invoice_instance_id: string
+          contract_id: string
+          status: string
+          message: string
+          read_at?: Timestamp | null
+          metadata?: Json | null
+        }
+        Update: {
+          id?: string
+          created_at?: Timestamp
+          invoice_instance_id?: string
+          contract_id?: string
+          status?: string
+          message?: string
+          read_at?: Timestamp | null
+          metadata?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'invoice_notifications_invoice_instance_id_fkey'
+            columns: ['invoice_instance_id']
+            referencedRelation: 'contract_invoice_instances'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'invoice_notifications_contract_id_fkey'
+            columns: ['contract_id']
+            referencedRelation: 'contracts'
             referencedColumns: ['id']
           }
         ]
@@ -547,6 +663,7 @@ export type Database = {
           salary: number | null
           payment_type: string | null
           avatar_url: string | null
+          level: number | null
         }
         Insert: {
           id?: string
@@ -565,6 +682,7 @@ export type Database = {
           salary?: number | null
           payment_type?: string | null
           avatar_url?: string | null
+          level?: number | null
         }
         Update: {
           id?: string
@@ -583,6 +701,7 @@ export type Database = {
           salary?: number | null
           payment_type?: string | null
           avatar_url?: string | null
+          level?: number | null
         }
         Relationships: []
       }

@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { format, addDays, addHours, parseISO, addWeeks } from 'date-fns'
+import { format, addDays, addHours, parseISO, addWeeks, parse } from 'date-fns'
 import type { Database } from '@/types/database'
 
 const FALLBACK_MESSAGE = 'Contract scheduling requires invoice completion. Please return to the invoice page and finish the previous step.'
@@ -89,16 +89,27 @@ export default function ContractSchedulePage() {
         const { data, error } = await supabase
           .from('trainers')
           .select('*')
-          .not('display_name', 'is', null)
           .order('display_name', { ascending: true })
 
         if (error) throw error
 
-        const activeTrainers = (data ?? []).filter(trainer => trainer.display_name?.trim())
+        const cleaned = (data ?? [])
+          .map(trainer => {
+            const fallbackName = `${trainer.first_name ?? ''} ${trainer.last_name ?? ''}`.trim()
+              || trainer.email
+              || 'Trainer'
+            return {
+              ...trainer,
+              display_name: (trainer.display_name?.trim() || fallbackName) as string,
+            }
+          })
+          .filter(trainer => trainer.display_name.trim())
+          .sort((a, b) => a.display_name.localeCompare(b.display_name))
 
-        setTrainers(activeTrainers)
-        if (activeTrainers.length && !selectedTrainerId) {
-          setSelectedTrainerId(activeTrainers[0].id)
+        setTrainers(cleaned)
+
+        if (cleaned.length && !selectedTrainerId) {
+          setSelectedTrainerId(cleaned[0].id)
         }
       } catch (error: any) {
         toast({
@@ -112,7 +123,7 @@ export default function ContractSchedulePage() {
     }
 
     fetchTrainers()
-  }, [contractId, contract, invoicePrepared, navigate, selectedTrainerId, toast])
+  }, [contractId, contract, invoicePrepared, navigate, toast, selectedTrainerId])
 
   useEffect(() => {
     if (!contract) return
@@ -218,12 +229,15 @@ export default function ContractSchedulePage() {
       // 2. Create or refresh training sessions for calendar
       await supabase.from('training_sessions').delete().eq('contract_id', contractId)
 
-      const startDate = parseISO(contract.start_date)
+      // Parse as local date to avoid UTC shift on plain "YYYY-MM-DD"
+      const startDate = parse(contract.start_date, 'yyyy-MM-dd', new Date())
       const endDate = contract.end_date ? parseISO(contract.end_date) : null
       const participantIds = participants.map(participant => participant.id)
+      const contractSessionType = participantIds.length > 1 ? 'small_group' : '1_on_1'
       const fallbackWeeks = contract.package_length ?? (slots.length ? Math.max(1, Math.ceil((contract.total_sessions ?? slots.length) / slots.length)) : 1)
 
-      const trainingSessionsPayload: Database['public']['Tables']['training_sessions']['Insert'][] = []
+      type InsertSession = Database['public']['Tables']['training_sessions']['Insert']
+      const allSessions: Omit<InsertSession, 'session_number'> & { session_number?: number }[] = []
 
       slots.forEach((slot, slotIndex) => {
         const [hours, minutes] = slot.startTime.split(':').map(Number)
@@ -239,14 +253,13 @@ export default function ContractSchedulePage() {
           sessionStart.setHours(hours ?? 0, minutes ?? 0, 0, 0)
           const sessionEnd = addHours(sessionStart, 1)
 
-          trainingSessionsPayload.push({
+          allSessions.push({
             contract_id: contractId,
             trainer_id: selectedTrainerId,
             session_date: format(currentDate, 'yyyy-MM-dd'),
             start_time: slot.startTime,
             end_time: format(sessionEnd, 'HH:mm'),
-            session_number: occurrence * slots.length + slotIndex + 1,
-            session_type: 'contract',
+            session_type: contractSessionType,
             status: 'scheduled',
             notes: specialNotes || null,
             participant_ids: participantIds,
@@ -259,7 +272,18 @@ export default function ContractSchedulePage() {
         }
       })
 
-      if (trainingSessionsPayload.length) {
+      if (allSessions.length) {
+        // Sort by (session_date ASC, start_time ASC) and assign sequential numbers
+        const sorted = allSessions.sort((a, b) => {
+          const da = a.session_date! + ' ' + (a.start_time || '00:00')
+          const db = b.session_date! + ' ' + (b.start_time || '00:00')
+          return da.localeCompare(db)
+        })
+        const trainingSessionsPayload: InsertSession[] = sorted.map((s, idx) => ({
+          ...s,
+          session_number: idx + 1,
+        }))
+
         const { error: sessionsError } = await supabase.from('training_sessions').insert(trainingSessionsPayload)
         if (sessionsError) throw sessionsError
       }

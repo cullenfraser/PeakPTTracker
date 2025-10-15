@@ -69,8 +69,12 @@ export default function AddSessionModal({
       setClients([])
       return
     }
-    fetchClientsForTrainer(formData.trainerId)
-  }, [open, formData.trainerId])
+    if (formData.sessionType === '1_on_1' || formData.sessionType === 'small_group') {
+      fetchClientsForTrainer(formData.trainerId)
+    } else {
+      setClients([])
+    }
+  }, [open, formData.trainerId, formData.sessionType])
 
   const fetchClientsForTrainer = async (trainerId: string) => {
     try {
@@ -103,10 +107,28 @@ export default function AddSessionModal({
       return
     }
 
-    if (formData.clientIds.length === 0) {
+    if ((formData.sessionType === '1_on_1' || formData.sessionType === 'small_group') && formData.clientIds.length === 0) {
       toast({
         title: 'Error',
-        description: 'Please select at least one client',
+        description: 'Please select at least one client for 1 on 1 or Small Group sessions',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (formData.sessionType === 'peak_class' && !formData.classType) {
+      toast({
+        title: 'Error',
+        description: 'Please select a Class Type for Peak Class sessions',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (formData.sessionType === 'pfa_team' && !formData.team) {
+      toast({
+        title: 'Error',
+        description: 'Please enter a Team name for PFA Team sessions',
         variant: 'destructive',
       })
       return
@@ -125,7 +147,9 @@ export default function AddSessionModal({
         session_type: formData.sessionType,
         status: 'scheduled',
         notes: formData.notes || null,
-        participant_ids: formData.clientIds,
+        class_type: formData.sessionType === 'peak_class' ? (formData.classType || null) : null,
+        team: formData.sessionType === 'pfa_team' ? (formData.team || null) : null,
+        participant_ids: (formData.sessionType === '1_on_1' || formData.sessionType === 'small_group') ? formData.clientIds : null,
       }
 
       const { error } = await supabase
@@ -163,11 +187,11 @@ export default function AddSessionModal({
           clientIds: prev.clientIds.filter(id => id !== clientId)
         }
       } else {
-        // Add client, but enforce max 3
-        if (prev.clientIds.length >= 3) {
+        // Add client, but enforce max 4
+        if (prev.clientIds.length >= 4) {
           toast({
             title: 'Maximum Participants Reached',
-            description: 'You can select up to 3 participants per session.',
+            description: 'You can select up to 4 participants per session.',
             variant: 'destructive',
           })
           return prev
@@ -270,6 +294,7 @@ export default function AddSessionModal({
               <option value="pfa_class">PFA Class</option>
               <option value="pfa_team">PFA Team</option>
               <option value="meeting">Meeting</option>
+              <option value="tasks">Tasks</option>
               <option value="onboarding">Onboarding</option>
               <option value="general">General</option>
             </Select>
@@ -312,7 +337,7 @@ export default function AddSessionModal({
           {/* Client Selection - Only for 1 on 1 and Small Group */}
           {(formData.sessionType === '1_on_1' || formData.sessionType === 'small_group') && (
             <div className="space-y-2">
-              <Label>Clients * (Select 1-3 participants) - {formData.clientIds.length}/3 selected</Label>
+              <Label>Clients * (Select 1-4 participants) - {formData.clientIds.length}/4 selected</Label>
             <div className="border rounded-lg p-3 max-h-40 overflow-y-auto space-y-2">
               {clients.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No active clients found</p>

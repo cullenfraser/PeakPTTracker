@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { createSquareCustomer, createSquareInvoice, SquareClientError } from '@/lib/squareClient'
 import { DollarSign, Loader2 } from 'lucide-react'
 
 interface SquareInvoiceModalProps {
@@ -34,6 +35,9 @@ interface SquareInvoiceModalProps {
     frequency: string
     start_date: string
     end_date: string
+    square_customer_id?: string | null
+    square_invoice_id?: string | null
+    square_payment_link?: string | null
   }
 }
 
@@ -67,34 +71,27 @@ export default function SquareInvoiceModal({ open, onClose, contractData }: Squa
     try {
       setLoading(true)
 
-      // Step 1: Create Square Customer
-      // TODO: Implement Square API integration
-      // For now, we'll simulate the customer creation
-      const squareCustomerId = `CUSTOMER_${Date.now()}`
-      
-      // In production, you would call:
-      // const response = await fetch('/api/square/create-customer', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({
-      //     givenName: formData.firstName,
-      //     familyName: formData.lastName,
-      //     emailAddress: formData.email,
-      //     phoneNumber: formData.phone,
-      //     companyName: formData.companyName,
-      //     address: {
-      //       addressLine1: formData.addressLine1,
-      //       addressLine2: formData.addressLine2,
-      //       locality: formData.city,
-      //       administrativeDistrictLevel1: formData.province,
-      //       postalCode: formData.postalCode,
-      //       country: formData.country,
-      //     },
-      //   }),
-      // })
-      // const { customerId } = await response.json()
+      let squareCustomerId = contractData.square_customer_id ?? null
 
-      // Step 2: Update contract with Square customer ID
+      if (!squareCustomerId) {
+        const customer = await createSquareCustomer({
+          givenName: formData.firstName,
+          familyName: formData.lastName || undefined,
+          emailAddress: formData.email,
+          phoneNumber: formData.phone || undefined,
+          companyName: formData.companyName || undefined,
+          address: {
+            addressLine1: formData.addressLine1 || undefined,
+            addressLine2: formData.addressLine2 || undefined,
+            locality: formData.city || undefined,
+            administrativeDistrictLevel1: formData.province || undefined,
+            postalCode: formData.postalCode || undefined,
+            country: formData.country || undefined,
+          },
+        })
+        squareCustomerId = customer.id
+      }
+
       const { error: updateError } = await supabase
         .from('contracts')
         .update({
@@ -115,40 +112,54 @@ export default function SquareInvoiceModal({ open, onClose, contractData }: Squa
 
       if (updateError) throw updateError
 
-      // Step 3: Create Square Invoice
-      // TODO: Implement Square Invoice API
-      const squareInvoiceId = `INVOICE_${Date.now()}`
-      
-      // In production, you would call:
-      // const invoiceResponse = await fetch('/api/square/create-invoice', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({
-      //     customerId: squareCustomerId,
-      //     lineItems: [{
-      //       name: `Personal Training Package - ${contractData.total_sessions} sessions`,
-      //       quantity: '1',
-      //       basePriceMoney: {
-      //         amount: Math.round(contractData.total_amount * 100), // Convert to cents
-      //         currency: 'CAD',
-      //       },
-      //     }],
-      //     paymentRequests: [{
-      //       requestType: 'BALANCE',
-      //       dueDate: contractData.start_date,
-      //       automaticPaymentSource: 'NONE',
-      //     }],
-      //     deliveryMethod: 'EMAIL',
-      //     scheduledAt: new Date().toISOString(),
-      //   }),
-      // })
-      // const { invoiceId } = await invoiceResponse.json()
+      const lineItems = [
+        {
+          name: `Training Package - ${contractData.total_sessions} sessions`,
+          quantity: 1,
+          amount: contractData.total_amount,
+          currency: 'CAD',
+          note: `Frequency: ${contractData.frequency.replace('_', ' ')}`,
+        },
+      ]
 
-      // Step 4: Update contract with invoice ID
+      const paymentRequests = []
+      if (contractData.down_payment && contractData.down_payment > 0) {
+        paymentRequests.push({
+          requestType: 'DEPOSIT' as const,
+          dueDate: contractData.start_date,
+          fixedAmount: contractData.down_payment,
+        })
+      }
+
+      paymentRequests.push({
+        requestType: 'BALANCE' as const,
+        dueDate: contractData.payment_schedule === 'full' ? contractData.start_date : contractData.end_date,
+      })
+
+      const invoiceResult = await createSquareInvoice({
+        customerId: squareCustomerId,
+        lineItems,
+        paymentRequests,
+        title: `Training Contract ${contractData.id.slice(0, 8)}`,
+        description: `Personal training package (${contractData.total_sessions} sessions)` ,
+        deliveryMethod: 'EMAIL',
+        sendInvoice: true,
+      })
+
+      const invoice = invoiceResult.invoice
+      const invoiceId = invoice?.id
+
+      if (!invoiceId) {
+        throw new Error('Square invoice did not return an ID')
+      }
+
+      const paymentLink = (invoice as unknown as { publicUrl?: string }).publicUrl ?? null
+
       const { error: invoiceUpdateError } = await supabase
         .from('contracts')
         .update({
-          square_invoice_id: squareInvoiceId,
+          square_invoice_id: invoiceId,
+          square_payment_link: paymentLink,
         })
         .eq('id', contractData.id)
 
@@ -156,14 +167,15 @@ export default function SquareInvoiceModal({ open, onClose, contractData }: Squa
 
       toast({
         title: 'Success',
-        description: `Square customer created and invoice sent to ${formData.email}`,
+        description: `Square customer synced and invoice sent to ${formData.email}`,
       })
 
       onClose()
     } catch (error: any) {
+      const message = error instanceof SquareClientError ? error.message : error?.message || 'Failed to create Square invoice'
       toast({
         title: 'Error',
-        description: error.message || 'Failed to create Square invoice',
+        description: message,
         variant: 'destructive',
       })
     } finally {

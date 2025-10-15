@@ -14,6 +14,9 @@ import CalendarPage from './pages/CalendarPage'
 import AdminPage from './pages/AdminPage'
 import NewAdminDashboard from './pages/NewAdminDashboard'
 import DashboardPage from './pages/DashboardPage'
+import ElevateLandingPage from './pages/ElevateLandingPage'
+import ElevateWizardPage from './pages/ElevateWizardPage'
+import ElevateReportPage from './pages/ElevateReportPage'
 
 function App() {
   return (
@@ -106,6 +109,30 @@ function App() {
             element={
               <ProtectedRoute>
                 <AdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/elevate"
+            element={
+              <ProtectedRoute>
+                <ElevateLandingPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/elevate/:clientId/new"
+            element={
+              <ProtectedRoute>
+                <ElevateWizardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/elevate/:sessionId"
+            element={
+              <ProtectedRoute>
+                <ElevateReportPage />
               </ProtectedRoute>
             }
           />

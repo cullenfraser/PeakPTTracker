@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { Printer, ArrowLeft, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react'
+import { Printer, ArrowLeft, ChevronLeft, ChevronRight, ShieldCheck, Loader2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import type { Database } from '@/types/database'
 import SignatureCanvas from 'react-signature-canvas'
@@ -26,6 +26,8 @@ export default function ContractPage() {
   const [continueLoading, setContinueLoading] = useState(false)
   const signatureRef = useRef<SignatureCanvas>(null)
   const parentSignatureRef = useRef<SignatureCanvas>(null)
+  const [signatureDirty, setSignatureDirty] = useState(false)
+  const [signatureSaving, setSignatureSaving] = useState(false)
 
   const selectedParticipantId = searchParams.get('participantId')
 
@@ -50,6 +52,8 @@ export default function ContractPage() {
     }, { replace: true })
     signatureRef.current?.clear()
     parentSignatureRef.current?.clear()
+    setSignatureDirty(false)
+    setSignatureSaving(false)
   }
 
   const handleContinue = async () => {
@@ -368,15 +372,52 @@ export default function ContractPage() {
     }
   }
 
-  const handleSignatureEnd = async () => {
-    if (!activeParticipant) return
-    if (!signatureRef.current || signatureRef.current.isEmpty()) return
-    await persistParticipantSignature(activeParticipant, signatureRef.current.toDataURL())
+  const handleSignatureStrokeEnd = () => {
+    if (!signatureRef.current || signatureRef.current.isEmpty()) {
+      setSignatureDirty(false)
+      return
+    }
+    setSignatureDirty(true)
+  }
+
+  const handleSignatureBegin = () => {
+    setSignatureDirty(true)
+  }
+
+  const handleSaveSignature = async () => {
+    if (!activeParticipant || !signatureRef.current || signatureRef.current.isEmpty()) {
+      toast({
+        title: 'Signature required',
+        description: 'Please sign in the signature box before saving.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      setSignatureSaving(true)
+      const updated = await persistParticipantSignature(
+        activeParticipant,
+        signatureRef.current.toDataURL(),
+        { notify: true },
+      )
+
+      if (updated) {
+        setSignatureDirty(false)
+      }
+    } finally {
+      setSignatureSaving(false)
+    }
   }
 
   const handleClearSignature = async () => {
     signatureRef.current?.clear()
+    setSignatureDirty(false)
     if (!activeParticipant) return
+
+    if (activeParticipant.status !== 'signed') {
+      return
+    }
 
     try {
       const timestamp = new Date().toISOString()
@@ -448,10 +489,27 @@ export default function ContractPage() {
   const participantPaymentPerSchedule = contract.split_payment
     ? (contract.split_payment_amount ?? paymentAmountBase / Math.max(1, participantCount))
     : paymentAmountBase
-  const activeSubtotal = activeParticipant?.subtotal ?? (contract.split_payment ? (contract.subtotal ?? 0) / Math.max(1, participantCount) : contract.subtotal ?? 0)
-  const activeTaxAmount = activeParticipant?.tax_amount ?? (contract.split_payment ? (contract.tax_amount ?? 0) / Math.max(1, participantCount) : contract.tax_amount ?? 0)
-  const activeTotalAmount = participantTotalDue ?? 0
-  const activeProcessingFee = contract.payment_method === 'credit_card' ? activeTotalAmount * 0.035 : 0
+  const splitSubtotalShare = contract.split_payment
+    ? (contract.subtotal ?? 0) / Math.max(1, participantCount)
+    : contract.subtotal ?? 0
+  const splitTaxShare = contract.split_payment
+    ? (contract.tax_amount ?? 0) / Math.max(1, participantCount)
+    : contract.tax_amount ?? 0
+  const splitProcessingShare = contract.split_payment
+    ? (contract.processing_fee ?? 0) / Math.max(1, participantCount)
+    : contract.processing_fee ?? 0
+
+  const activeSubtotal = activeParticipant?.subtotal ?? splitSubtotalShare
+  const rawTaxShare = activeParticipant?.tax_amount ?? splitTaxShare
+  const activeProcessingFee = contract.split_payment
+    ? splitProcessingShare
+    : Math.max(0, (activeParticipant?.total_amount ?? 0) - activeSubtotal - (activeParticipant?.tax_amount ?? splitTaxShare ?? 0))
+  const activeTaxAmount = contract.split_payment
+    ? Math.max(0, rawTaxShare ?? (contract.tax_amount ?? 0) / Math.max(1, participantCount))
+    : rawTaxShare
+  const activeTotalAmount = contract.split_payment
+    ? activeSubtotal + activeProcessingFee + activeTaxAmount
+    : participantTotalDue ?? activeSubtotal + activeProcessingFee + activeTaxAmount
   const activeBalanceDue = Math.max(0, activeTotalAmount - participantDownPaymentShare)
   const signedParticipant = isParticipantSigned ? activeParticipant : null
 
@@ -1111,6 +1169,9 @@ export default function ContractPage() {
               <div>Subtotal:</div>
               <div className="font-bold">{formatCurrency(activeSubtotal)}</div>
 
+              <div>Processing Fee:</div>
+              <div className="font-bold">{formatCurrency(activeProcessingFee)}</div>
+
               <div>Taxes:</div>
               <div className="font-bold">{formatCurrency(activeTaxAmount)}</div>
 
@@ -1132,8 +1193,8 @@ export default function ContractPage() {
                 {formatCurrency(participantPaymentPerSchedule)} {contract.payment_schedule === 'monthly' ? 'Monthly' : contract.payment_schedule === 'bi_weekly' ? 'Bi-Weekly' : 'Full Payment'}
               </div>
 
-              <div>Processing Fee:</div>
-              <div className="font-bold">{formatCurrency(activeProcessingFee)}</div>
+              <div>Processing Fee Applied Before Tax</div>
+              <div className="font-bold text-xs text-muted-foreground">Included in totals above</div>
             </div>
           </div>
 
@@ -1207,15 +1268,12 @@ export default function ContractPage() {
                   ) : (
                     <div className="border border-black h-24 print:h-16"></div>
                   )}
-                  <p className="mt-2">Date: {signedParticipant.signed_date ? formatDate(signedParticipant.signed_date) : '—'}</p>
-                </div>
-                {isMinor && (
-                  <div>
-                    <p className="mb-2">Parent/Guardian Signature (if applicable):</p>
-                    <div className="border border-black h-24 print:h-16"></div>
-                    <p className="mt-2">Date: ______________</p>
+                  <div className="flex items-center gap-2 mt-2 no-print">
+                    <Button onClick={handleClearSignature} variant="outline" size="sm">
+                      Clear Signature
+                    </Button>
                   </div>
-                )}
+                </div>
               </div>
             ) : (
               <div className="space-y-6">
@@ -1224,16 +1282,41 @@ export default function ContractPage() {
                   <div className="border-2 border-gray-400 rounded print:border-black print:rounded-none">
                     <SignatureCanvas
                       ref={signatureRef}
-                      onEnd={handleSignatureEnd}
+                      onBegin={handleSignatureBegin}
+                      onEnd={handleSignatureStrokeEnd}
                       canvasProps={{
                         className: 'w-full h-32 cursor-crosshair print:h-16',
                       }}
                     />
                   </div>
                   <div className="flex items-center gap-2 mt-2 no-print">
+                    <Button
+                      onClick={handleSaveSignature}
+                      size="sm"
+                      disabled={signatureSaving || !signatureDirty}
+                    >
+                      {signatureSaving ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        'Save Signature'
+                      )}
+                    </Button>
                     <Button onClick={handleClearSignature} variant="outline" size="sm">
                       Clear Signature
                     </Button>
+                    {participants.length > 1 && (
+                      <Button
+                        onClick={() => void handleNavigateParticipant('next')}
+                        variant="default"
+                        size="sm"
+                        disabled={!activeParticipant || participantLoading}
+                      >
+                        Next Participant
+                      </Button>
+                    )}
                   </div>
                 </div>
                 {isMinor && (

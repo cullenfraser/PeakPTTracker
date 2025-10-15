@@ -1,0 +1,25 @@
+export const ELEVATE_WEIGHTS = {
+  pillarItems: {
+    EX: ['ex_mvpa', 'ex_steps', 'ex_strength_days'],
+    NU: ['nu_protein', 'nu_upf', 'nu_vegfruit', 'nu_water'],
+    SL: ['sl_duration', 'sl_quality'],
+    ST: ['st_stress_load', 'st_coping'],
+  },
+  pillarItemWeights: {
+    ex_mvpa: 1,
+    ex_steps: 1,
+    ex_strength_days: 1,
+    nu_protein: 1,
+    nu_upf: 1,
+    nu_vegfruit: 1,
+    nu_water: 0.5,
+    sl_duration: 1,
+    sl_quality: 1,
+    st_stress_load: 1,
+    st_coping: 1,
+  } as Record<string, number>,
+  peakWeights: { ex: 0.35, nu: 0.3, sl: 0.15, st: 0.2 },
+  nuFromFoodEnvK: 0.05,
+  healthAge: { rhr: 0.22, sbp: 0.2, bf: 0.22, whtR: 0.2, grip: 0.08, peak: 0.08 },
+  freqK: 0.25,
+} as const
