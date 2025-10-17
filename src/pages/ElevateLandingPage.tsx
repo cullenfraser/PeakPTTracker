@@ -1,10 +1,21 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Layout from '@/components/Layout'
 import RequireTrainer from '@/components/RequireTrainer'
 import { supabase } from '@/lib/supabase'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 
 interface SimpleClient { id: string; first_name: string; last_name: string; email: string | null; phone: string | null }
+
+async function hasExistingSession(clientId: string) {
+  const { data, error } = await (supabase as any)
+    .from('elevate_session')
+    .select('id')
+    .eq('client_id', clientId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+  if (error) throw error
+  return data && data.length > 0
+}
 
 export default function ElevateLandingPage() {
   const [clients, setClients] = useState<SimpleClient[]>([])
@@ -14,6 +25,41 @@ export default function ElevateLandingPage() {
   const [lead, setLead] = useState({ first: '', last: '', email: '', phone: '' })
   const [leadSaving, setLeadSaving] = useState(false)
   const [leadError, setLeadError] = useState<string | null>(null)
+  const [startingId, setStartingId] = useState<string | null>(null)
+  const [resumePromptId, setResumePromptId] = useState<string | null>(null)
+
+  const handleStartSession = useCallback(async (id: string) => {
+    setStartingId(id)
+    try {
+      const existing = await hasExistingSession(id)
+      if (existing) {
+        setResumePromptId(id)
+        return
+      }
+      navigate(`/elevate/${id}/new?mode=fresh`)
+    } catch (error) {
+      console.error('Failed to start Elevate session', error)
+      alert('Unable to start Elevate session. Please try again.')
+    } finally {
+      setStartingId(null)
+    }
+  }, [navigate])
+
+  const handleResume = useCallback(() => {
+    if (!resumePromptId) return
+    setResumePromptId(null)
+    navigate(`/elevate/${resumePromptId}/new?mode=resume`)
+  }, [navigate, resumePromptId])
+
+  const handleStartFresh = useCallback(() => {
+    if (!resumePromptId) return
+    setResumePromptId(null)
+    navigate(`/elevate/${resumePromptId}/new?mode=fresh`)
+  }, [navigate, resumePromptId])
+
+  const handleScreen = useCallback((id: string) => {
+    navigate(`/elevate/screen?clientId=${id}`)
+  }, [navigate])
 
   useEffect(() => {
     const run = async () => {
@@ -91,14 +137,14 @@ export default function ElevateLandingPage() {
                           .eq('email', email)
                           .maybeSingle()
                         if (existing?.id) {
-                          navigate(`/elevate/${existing.id}/new`)
+                          await handleStartSession(existing.id)
                           return
                         }
                       }
                       throw error
                     }
                     if (data?.id) {
-                      navigate(`/elevate/${data.id}/new`)
+                      navigate(`/elevate/${data.id}/new?mode=fresh`)
                       return
                     }
                     setLeadError('Failed to create lead')
@@ -134,7 +180,19 @@ export default function ElevateLandingPage() {
                       <div className="font-medium">{c.first_name} {c.last_name}</div>
                       <div className="text-xs text-muted-foreground">{c.email ?? '—'} {c.phone ? `• ${c.phone}` : ''}</div>
                     </div>
-                    <Link to={`/elevate/${c.id}/new`} className="px-3 py-2 rounded-md bg-[#3FAE52] text-white text-sm">Start session</Link>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="px-3 py-2 rounded-md bg-[#3FAE52] text-white text-sm disabled:opacity-60"
+                        onClick={()=>void handleStartSession(c.id)}
+                        disabled={startingId === c.id}
+                      >{startingId === c.id ? 'Loading…' : 'Consult'}</button>
+                      <button
+                        type="button"
+                        className="px-3 py-2 rounded-md border text-sm hover:bg-accent"
+                        onClick={()=>handleScreen(c.id)}
+                      >Screen</button>
+                    </div>
                   </div>
                 ))
               )}
@@ -142,6 +200,30 @@ export default function ElevateLandingPage() {
           )}
         </div>
       </Layout>
+      {resumePromptId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm space-y-5 rounded-lg border bg-card p-6 shadow-xl">
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold">Pick up where you left off?</h3>
+              <p className="text-sm text-muted-foreground">
+                We found an in-progress Elevate consult for this client. Continue to keep their momentum, or start a fresh session to capture a new baseline.
+              </p>
+            </div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="h-10 rounded-md border px-4 text-sm font-medium hover:bg-accent"
+                onClick={handleStartFresh}
+              >Start New</button>
+              <button
+                type="button"
+                className="h-10 rounded-md bg-[#3FAE52] px-4 text-sm font-semibold text-white hover:bg-[#339449]"
+                onClick={handleResume}
+              >Continue</button>
+            </div>
+          </div>
+        </div>
+      )}
     </RequireTrainer>
   )
 }

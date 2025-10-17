@@ -1,5 +1,3 @@
-import React from 'react'
-
 type Props = { peak: number; chronAge: number; healthAge: number; delta: number }
 
 export default function HeroTiles({ peak, chronAge, healthAge, delta }: Props) {

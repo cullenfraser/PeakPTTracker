@@ -36,6 +36,20 @@ export default function ParqCard({ value, onChange, onFinished }: Props) {
 
   const progressPct = Math.round(((i) / steps.length) * 100)
 
+  const recs = useMemo(() => {
+    const r: string[] = []
+    if ((value as any)?.chest_pain) r.push('Chest discomfort with activity: pause vigorous exercise and check in with your clinician. We will keep intensity easy and monitor symptoms.')
+    if ((value as any)?.dizziness) r.push('Dizziness or fainting: avoid sudden position changes; train with supervision; consider a clinician check-in.')
+    if ((value as any)?.dx_condition) r.push('Ongoing medical condition: bring any guidance from your care team; we will align your plan to it.')
+    if ((value as any)?.sob_mild) r.push('Shortness of breath with mild effort: start low and progress gradually; we will watch intensity and rest closely.')
+    if ((value as any)?.joint_issue) r.push('Joint concerns: we will use pain‑free ranges and adjust load, tempo, and exercise selection to protect the area.')
+    if ((value as any)?.balance_neuro) r.push('Balance or neurological changes: prioritize stability and safe setups; we will avoid high fall‑risk drills.')
+    if ((value as any)?.recent_surgery) r.push('Recent surgery: follow post‑op guidance and rebuild steadily around the affected area.')
+    if (typeof value.uncontrolled_bp_dm === 'string' && value.uncontrolled_bp_dm.trim().length > 0) r.push('Uncontrolled blood pressure or diabetes: seek clinician clearance; we will keep intensity modest until cleared.')
+    if (typeof value.pregnancy_postpartum === 'string' && value.pregnancy_postpartum.trim().length > 0) r.push('Pregnancy or postpartum: we will tailor positions, breathing, and loading to keep you safe and supported.')
+    return r
+  }, [value])
+
   const answerBool = (key: string, val: boolean) => {
     onChange({ [key]: val } as any)
     if (i < steps.length - 1) setI(i + 1)
@@ -154,9 +168,18 @@ export default function ParqCard({ value, onChange, onFinished }: Props) {
                 <div className="text-sm">Uncontrolled BP/DM: <b>{value.uncontrolled_bp_dm || '—'}</b> • Pregnancy/Postpartum: <b>{value.pregnancy_postpartum || '—'}</b></div>
               </div>
             </div>
-            {highRisk && (
+            {recs.length === 0 ? (
+              <div className="rounded-md border border-emerald-300 bg-emerald-50 text-emerald-800 p-3 text-sm">
+                Nothing in your answers appears to be holding you back from safe training right now. We will still start sensible, listen to your body, and build momentum week by week.
+              </div>
+            ) : (
               <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-800 p-3 text-sm">
-                Based on responses, consider medical clearance before higher-intensity exercise.
+                <div className="font-medium mb-1">Recommendations</div>
+                <ul className="list-disc pl-5 space-y-1">
+                  {recs.map((t, idx) => (
+                    <li key={idx}>{t}</li>
+                  ))}
+                </ul>
               </div>
             )}
             <div>

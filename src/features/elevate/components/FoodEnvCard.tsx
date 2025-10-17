@@ -1,4 +1,3 @@
-import React from 'react'
 import type { FoodEnv } from '../domain/types'
 
 type Props = { value: FoodEnv; onChange: (patch: Partial<FoodEnv>) => void }

@@ -1,4 +1,4 @@
-import { Horizon, Scenario, PillarScores, InBody, Vitals, RiskMap, Projection } from './types'
+import type { Horizon, PillarScores, InBody, Vitals, RiskMap, Projection } from './types'
 import { ELEVATE_WEIGHTS } from '../elevate.config'
 
 export const computeWHtR = (waist_cm: number, height_cm: number): number => {
@@ -8,7 +8,7 @@ export const computeWHtR = (waist_cm: number, height_cm: number): number => {
 
 export const scorePillars = (items: Record<string, number>, fe: number): PillarScores => {
   // Aggregate item codes by pillar using weights
-  const sumBy = (codes: string[]) => {
+  const sumBy = (codes: readonly string[]) => {
     let s = 0
     let w = 0
     for (const code of codes) {
@@ -114,7 +114,6 @@ const updateInBodyWithFrequency = (ib: InBody, w:number, months:number): InBody 
 }
 
 export const noChangeProjection = (inputs: { v: Vitals; ib: InBody; ps: PillarScores; gripZ:number }, horizon: Horizon): Projection => {
-  const months = horizonToMonths(horizon)
   const ib2 = { ...inputs.ib } // assume stable
   const ps2 = { ...inputs.ps }
   const h = healthAge(inputs.v, ib2, ps2, inputs.gripZ)

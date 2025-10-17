@@ -1,5 +1,4 @@
-import React from 'react'
-import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Legend, CartesianGrid } from 'recharts'
+import { LineChart, Line, Legend, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts'
 import type { Horizon } from '../../domain/types'
 
 type Props = {

@@ -1,4 +1,3 @@
-import React from 'react'
 import type { Grip } from '../domain/types'
 
 type Props = { value: Grip; weight: number; onChange: (patch: Partial<Grip>) => void }

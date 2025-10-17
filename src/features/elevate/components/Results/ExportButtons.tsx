@@ -1,5 +1,3 @@
-import React from 'react'
-
 export default function ExportButtons() {
   const exportClient = () => {
     alert('Client PDF export coming soon')

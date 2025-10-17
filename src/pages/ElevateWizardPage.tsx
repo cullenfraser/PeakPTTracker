@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import Layout from '@/components/Layout'
 import RequireTrainer from '@/components/RequireTrainer'
 import ParqCard from '@/features/elevate/components/ParqCard'
@@ -16,13 +16,17 @@ import ReferralBanner from '@/features/elevate/components/Results/ReferralBanner
 import ExportButtons from '@/features/elevate/components/Results/ExportButtons'
 import { noChangeProjection, projectWithFrequency } from '@/features/elevate/domain/compute'
 import type { Horizon } from '@/features/elevate/domain/types'
+import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
 
 const steps = ['PAR-Q','SMART Goals','Pillars','Vitals/InBody','Grip','Results'] as const
 
 export default function ElevateWizardPage() {
   const { clientId } = useParams()
-  const navigate = useNavigate()
-  const { state, loading, error, updateParq, updateVitalsInBody, updateGrip, updateFood, updatePillarItems, updateGoals, saveSummary } = useElevateSession(clientId ?? null)
+  const [searchParams] = useSearchParams()
+  const modeParam = searchParams.get('mode')
+  const sessionMode = modeParam === 'fresh' || modeParam === 'resume' ? modeParam : 'resume'
+  const { state, loading, error, updateParq, updateVitalsInBody, updateGrip, updateFood, updatePillarItems, updateGoals, saveSummary } = useElevateSession(clientId ?? null, sessionMode)
   const [step, setStep] = useState(0)
   const [timer, setTimer] = useState(0)
   const [horizon, setHorizon] = useState<Horizon>('6mo')
@@ -30,11 +34,70 @@ export default function ElevateWizardPage() {
   const [adherence, setAdherence] = useState(0.8)
   const [protein, setProtein] = useState(1)
   const [sleep, setSleep] = useState(1)
+  const [introDone, setIntroDone] = useState(false)
+  const [clientInfo, setClientInfo] = useState<{ first_name: string | null; last_name: string | null; email: string | null; phone: string | null } | null>(null)
+  const [clientLoading, setClientLoading] = useState(false)
+  const [clientError, setClientError] = useState<string | null>(null)
+  const { user } = useAuth()
+  const [trainerInfo, setTrainerInfo] = useState<{ email: string | null; phone: string | null }>({ email: null, phone: null })
 
   useEffect(() => {
     const id = window.setInterval(() => setTimer((t) => t + 1), 1000)
     return () => window.clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    setIntroDone(false)
+  }, [clientId])
+
+  useEffect(() => {
+    if (!clientId) return
+    let active = true
+    setClientLoading(true)
+    setClientError(null)
+    ;(async () => {
+      const { data, error: fetchError } = await supabase
+        .from('clients')
+        .select('first_name, last_name, email, phone')
+        .eq('id', clientId)
+        .maybeSingle()
+      if (!active) return
+      if (fetchError) {
+        setClientError(fetchError.message)
+      }
+      setClientInfo(data ?? null)
+      setClientLoading(false)
+    })()
+    return () => {
+      active = false
+    }
+  }, [clientId])
+
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      try {
+        const defaultEmail = user?.email ?? null
+        let email = defaultEmail
+        let phone: string | null = null
+        if (user?.id) {
+          const { data } = await (supabase as any)
+            .from('trainers')
+            .select('email, phone')
+            .eq('user_id', user.id)
+            .maybeSingle()
+          email = (data?.email ?? email) || email
+          phone = data?.phone ?? null
+        }
+        if (!active) return
+        setTrainerInfo({ email: email ?? null, phone })
+      } catch {
+        if (!active) return
+        setTrainerInfo({ email: user?.email ?? null, phone: null })
+      }
+    })()
+    return () => { active = false }
+  }, [user?.id, user?.email])
 
   const projections = useMemo(() => {
     if (!state) return null
@@ -53,28 +116,90 @@ export default function ElevateWizardPage() {
     return flags.some((k) => (v as any)[k]) || Boolean(v.uncontrolled_bp_dm)
   }, [state?.parq])
 
+  const clientName = useMemo(() => {
+    if (!clientInfo) return 'Your client'
+    const first = clientInfo.first_name?.trim() ?? ''
+    const last = clientInfo.last_name?.trim() ?? ''
+    const name = `${first} ${last}`.trim()
+    return name || 'Your client'
+  }, [clientInfo])
+
+  const trainerEmail = trainerInfo.email ?? ''
+  const trainerPhone = trainerInfo.phone ?? ''
+
+  if (!introDone) {
+    return (
+      <RequireTrainer>
+        <Layout>
+          <section className="relative w-full">
+            <div className="mx-auto max-w-5xl px-6 py-14 md:py-20">
+              <div className="space-y-8 text-center">
+                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                  Peak Fitness • Elevate Consult
+                </div>
+                <h1 className="text-3xl md:text-5xl font-bold leading-tight">
+                  {`Let's unlock what's possible for ${clientName}.`}
+                </h1>
+                <p className="mx-auto max-w-3xl text-[15px] md:text-lg text-muted-foreground">
+                  Elevate is our guided consult that turns honest inputs into a clear, coachable plan—built for real life. Whether you’re new and unsure where to start, coming back after a break, or already training and chasing the next level, we’ll map the safest path forward and the fastest wins you can feel each week.
+                </p>
+                {clientError && (
+                  <div className="mx-auto max-w-3xl rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+                    {clientError}
+                  </div>
+                )}
+                <div className="grid gap-3 text-left md:grid-cols-2">
+                  <div className="rounded-lg border bg-card/80 p-4">
+                    <div className="text-sm font-semibold">Activity Readiness & Smart Goals</div>
+                    <div className="mt-1 text-sm text-muted-foreground">Confirm readiness, surface any red flags, and set SMART goals that actually fit your life.</div>
+                  </div>
+                  <div className="rounded-lg border bg-card/80 p-4">
+                    <div className="text-sm font-semibold">Lifestyle Pillars</div>
+                    <div className="mt-1 text-sm text-muted-foreground">Score the daily habits that drive results—movement, nutrition, sleep, and stress—so momentum has a map.</div>
+                  </div>
+                  <div className="rounded-lg border bg-card/80 p-4">
+                    <div className="text-sm font-semibold">Vitals & InBody</div>
+                    <div className="mt-1 text-sm text-muted-foreground">Track the biometrics that matter (BP, body comp, waist:height) to anchor progress in real data.</div>
+                  </div>
+                  <div className="rounded-lg border bg-card/80 p-4">
+                    <div className="text-sm font-semibold">Strength Snapshot</div>
+                    <div className="mt-1 text-sm text-muted-foreground">Quick grip test to index strength and longevity—your baseline for stronger tomorrows.</div>
+                  </div>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  {clientInfo?.email && <div>Client Email: {clientInfo.email}</div>}
+                  {clientInfo?.phone && <div>Client Phone: {clientInfo.phone}</div>}
+                </div>
+                <div className="text-xs text-muted-foreground">Questions? Contact {trainerEmail || 'your trainer'} {trainerPhone ? `• ${trainerPhone}` : ''}</div>
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    className="h-12 px-6 rounded-md bg-[#3FAE52] text-white text-base font-semibold disabled:opacity-60"
+                    onClick={() => setIntroDone(true)}
+                    disabled={clientLoading}
+                  >Begin</button>
+                  {sessionMode === 'resume' && (
+                    <button
+                      type="button"
+                      className="h-12 px-6 rounded-md border text-base font-semibold hover:bg-accent"
+                      onClick={() => setIntroDone(true)}
+                      disabled={clientLoading}
+                    >Resume Session</button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        </Layout>
+      </RequireTrainer>
+    )
+  }
+
   return (
     <RequireTrainer>
       <Layout>
-        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-[260px_1fr] gap-4">
-          <aside className="md:sticky md:top-[80px] self-start border rounded-lg p-3 h-fit">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-sm font-medium">Progress</div>
-              <div className="text-xs text-muted-foreground">{autosaveBadge}</div>
-            </div>
-            <ol className="space-y-1 text-sm">
-              {steps.map((label, i) => (
-                <li key={label}>
-                  <button type="button" onClick={() => setStep(i)} className={`w-full text-left px-2 py-1 rounded ${i===step?'bg-[#3FAE52] text-white':'hover:bg-accent'}`}>
-                    <span className="mr-2">{i < step ? '✓' : i === step ? '•' : '○'}</span>{label}
-                  </button>
-                </li>
-              ))}
-            </ol>
-            <div className="mt-3 text-xs text-muted-foreground">Time: {Math.floor(timer/60)}:{String(timer%60).padStart(2,'0')}</div>
-          </aside>
-
-          <section className="space-y-4">
+        <div className="mx-auto w-full max-w-4xl px-6 py-6 pb-28">
+          <section className="space-y-6">
             {loading && <div className="py-12 text-center text-muted-foreground">Loading…</div>}
             {error && <div className="py-3 text-red-600 border border-red-300 bg-red-50 rounded">{error}</div>}
             {!loading && state && (
@@ -117,20 +242,25 @@ export default function ElevateWizardPage() {
                     <ExportButtons />
                   </div>
                 )}
-                <div className="flex items-center justify-between">
-                  <button type="button" disabled={step===0} className="px-3 py-2 rounded border" onClick={()=>setStep((s)=>Math.max(0,s-1))}>Back</button>
-                  <div className="flex items-center gap-2">
-                    <button type="button" className="px-3 py-2 rounded border" onClick={()=>void saveSummary()}>Save</button>
-                    {step<steps.length-1 ? (
-                      <button type="button" className="px-3 py-2 rounded bg-[#3FAE52] text-white" onClick={()=>setStep((s)=>Math.min(steps.length-1,s+1))}>Next</button>
-                    ) : (
-                      <button type="button" className="px-3 py-2 rounded bg-[#3FAE52] text-white" onClick={()=>navigate(`/elevate/${state.sessionId}`)}>Finish</button>
-                    )}
-                  </div>
-                </div>
               </>
             )}
           </section>
+        </div>
+        {/* Bottom subtle progress bar */}
+        <div className="sticky bottom-0 inset-x-0 z-40 border-t bg-background/70 backdrop-blur supports-[backdrop-filter]:bg-background/50">
+          <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div className="hidden text-xs text-muted-foreground md:block">{`Step ${Math.min(step+1, steps.length)} of ${steps.length}`} • {steps[Math.min(step, steps.length-1)]}</div>
+              <div className="h-1 w-40 overflow-hidden rounded bg-muted">
+                <div className="h-1 bg-[#3FAE52]" style={{ width: `${Math.round(((Math.min(step, steps.length-1)+1)/steps.length)*100)}%` }} />
+              </div>
+              <div className="text-xs text-muted-foreground">{autosaveBadge}</div>
+              <div className="hidden text-xs text-muted-foreground sm:block">Time {Math.floor(timer/60)}:{String(timer%60).padStart(2,'0')}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" className="px-3 py-2 rounded border" onClick={()=>void saveSummary()}>Save</button>
+            </div>
+          </div>
         </div>
       </Layout>
     </RequireTrainer>

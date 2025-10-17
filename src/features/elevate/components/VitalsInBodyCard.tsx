@@ -1,4 +1,3 @@
-import React from 'react'
 import type { InBody, Vitals } from '../domain/types'
 import { computeWHtR } from '../domain/compute'
 

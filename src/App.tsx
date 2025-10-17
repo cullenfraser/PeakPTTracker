@@ -17,6 +17,9 @@ import DashboardPage from './pages/DashboardPage'
 import ElevateLandingPage from './pages/ElevateLandingPage'
 import ElevateWizardPage from './pages/ElevateWizardPage'
 import ElevateReportPage from './pages/ElevateReportPage'
+import ElevateScreenLandingPage from './pages/ElevateScreenLandingPage'
+import ElevateMovementScreenPage from './pages/ElevateMovementScreenPage'
+import ElevationMapPage from './pages/ElevationMapPage'
 
 function App() {
   return (
@@ -133,6 +136,30 @@ function App() {
             element={
               <ProtectedRoute>
                 <ElevateReportPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/elevate/screen"
+            element={
+              <ProtectedRoute>
+                <ElevateScreenLandingPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/elevate/screen/:pattern"
+            element={
+              <ProtectedRoute>
+                <ElevateMovementScreenPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/elevate/map"
+            element={
+              <ProtectedRoute>
+                <ElevationMapPage />
               </ProtectedRoute>
             }
           />

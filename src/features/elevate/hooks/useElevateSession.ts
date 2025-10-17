@@ -34,31 +34,42 @@ export interface Goals {
   workouts_per_week: number | null
 }
 
-export function useElevateSession(clientId: string | null) {
+export function useElevateSession(clientId: string | null, mode: 'resume'|'fresh'|'undecided' = 'resume') {
   const [state, setState] = useState<ElevateState | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(mode !== 'undecided')
   const [error, setError] = useState<string | null>(null)
   const saveTimer = useRef<number | null>(null)
 
-  const createOrLoad = useCallback(async () => {
+  useEffect(() => {
+    if (mode === 'undecided') setLoading(false)
+  }, [mode])
+
+  const createOrLoad = useCallback(async (modeArg: 'resume'|'fresh') => {
     if (!clientId) return
     setLoading(true)
     setError(null)
+    if (saveTimer.current) {
+      window.clearTimeout(saveTimer.current)
+      saveTimer.current = null
+    }
+    if (modeArg === 'fresh') {
+      setState(null)
+    }
     try {
-      // Try to find a recent session created today for this client
-      const today = new Date().toISOString().slice(0, 10)
-      const { data: existing } = await (supabase as any)
-        .from('elevate_session')
-        .select('id, client_id, ex, nu, sl, st, peak, health_age, health_age_delta, created_at')
-        .eq('client_id', clientId)
-        .gte('created_at', today)
-        .order('created_at', { ascending: false })
-        .limit(1)
+      let sessionId: string | null = null
+      if (modeArg === 'resume') {
+        const { data: existing } = await (supabase as any)
+          .from('elevate_session')
+          .select('id, created_at')
+          .eq('client_id', clientId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+        if (existing && existing.length > 0) {
+          sessionId = existing[0].id
+        }
+      }
 
-      let sessionId: string
-      if (existing && existing.length > 0) {
-        sessionId = existing[0].id
-      } else {
+      if (!sessionId) {
         const { data: created, error: createErr } = await (supabase as any)
           .from('elevate_session')
           .insert({ client_id: clientId })
@@ -66,6 +77,10 @@ export function useElevateSession(clientId: string | null) {
           .single()
         if (createErr) throw createErr
         sessionId = created.id
+      }
+
+      if (!sessionId) {
+        throw new Error('Unable to create Elevate session')
       }
 
       // Load child tables (best-effort; may be empty)
@@ -124,7 +139,11 @@ export function useElevateSession(clientId: string | null) {
     }
   }, [clientId])
 
-  useEffect(() => { void createOrLoad() }, [createOrLoad])
+  useEffect(() => {
+    if (!clientId || mode === 'undecided') return
+    const normalized = mode === 'fresh' ? 'fresh' : 'resume'
+    void createOrLoad(normalized)
+  }, [clientId, mode, createOrLoad])
 
   const scheduleSave = useCallback((fn: () => Promise<void>) => {
     if (saveTimer.current) window.clearTimeout(saveTimer.current)
@@ -224,7 +243,11 @@ export function useElevateSession(clientId: string | null) {
     await (supabase as any).from('elevate_session').update({ ex: state.pillars.ex, nu: state.pillars.nu, sl: state.pillars.sl, st: state.pillars.st, peak: state.pillars.peak, health_age: h.age, health_age_delta: h.delta }).eq('id', state.sessionId)
   }, [state])
 
-  const value = useMemo(() => ({ state, loading, error, updateParq, updateFood, updateVitalsInBody, updateGrip, updatePillarItems, updateGoals, saveSummary }), [state, loading, error, updateParq, updateFood, updateVitalsInBody, updateGrip, updatePillarItems, updateGoals, saveSummary])
+  const restart = useCallback(async () => {
+    await createOrLoad('fresh')
+  }, [createOrLoad])
+
+  const value = useMemo(() => ({ state, loading, error, updateParq, updateFood, updateVitalsInBody, updateGrip, updatePillarItems, updateGoals, saveSummary, restart }), [state, loading, error, updateParq, updateFood, updateVitalsInBody, updateGrip, updatePillarItems, updateGoals, saveSummary, restart])
 
   return value
 }
