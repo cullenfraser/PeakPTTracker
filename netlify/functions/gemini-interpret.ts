@@ -7,8 +7,8 @@ const CORS_HEADERS = {
 }
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash-latest'
-const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash'
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent`
 
 type Pattern = 'Squat' | 'Lunge' | 'Hinge' | 'Push' | 'Pull'
 

@@ -631,50 +631,42 @@ export default function ContractInvoicePage() {
         const phoneValue = formData.phone || null
         const emailValue = formData.email || null
 
-        const updates: Promise<unknown>[] = []
-
         if (contract.quote_id) {
-          updates.push(
-            supabase
-              .from('quotes')
-              .update({
-                customer_name: combinedName,
-                customer_email: emailValue,
-                customer_phone: phoneValue,
-              })
-              .eq('id', contract.quote_id),
-          )
+          const { error: quoteError } = await supabase
+            .from('quotes')
+            .update({
+              customer_name: combinedName,
+              customer_email: emailValue,
+              customer_phone: phoneValue,
+            })
+            .eq('id', contract.quote_id)
+
+          if (quoteError) throw quoteError
         }
 
-        updates.push(
-          supabase
-            .from('participant_contracts')
-            .update({
-              participant_email: emailValue,
-              participant_phone: phoneValue,
-              participant_name: combinedName || undefined,
-            })
-            .eq('contract_id', contractId)
-            .eq('participant_index', 1),
-        )
+        const { error: participantContractError } = await supabase
+          .from('participant_contracts')
+          .update({
+            participant_email: emailValue,
+            participant_phone: phoneValue,
+            participant_name: combinedName || undefined,
+          })
+          .eq('contract_id', contractId)
+          .eq('participant_index', 1)
 
-        updates.push(
-          supabase
-            .from('contract_participants')
-            .update({
-              full_name: combinedName || undefined,
-              email: emailValue,
-              phone: phoneValue,
-            })
-            .eq('contract_id', contractId)
-            .eq('participant_index', 1),
-        )
+        if (participantContractError) throw participantContractError
 
-        const results = await Promise.all(updates)
-        const failed = results.find(res => 'error' in (res as any) && (res as any).error)
-        if (failed) {
-          throw (failed as any).error
-        }
+        const { error: contractParticipantError } = await supabase
+          .from('contract_participants')
+          .update({
+            full_name: combinedName || undefined,
+            email: emailValue,
+            phone: phoneValue,
+          })
+          .eq('contract_id', contractId)
+          .eq('participant_index', 1)
+
+        if (contractParticipantError) throw contractParticipantError
       }
 
       const lineItems = [

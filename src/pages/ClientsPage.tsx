@@ -626,8 +626,6 @@ export default function ClientsPage() {
   const [adherenceStats, setAdherenceStats] = useState<AdherenceStats | null>(null)
   const [adherenceRange, setAdherenceRange] = useState<AdherenceRangeKey>('30d')
   const [engagementMetrics, setEngagementMetrics] = useState<EngagementMetrics | null>(null)
-  const [editMode, setEditMode] = useState(false)
-  const [editForm, setEditForm] = useState({ firstName: '', lastName: '', email: '', phone: '' })
   const selectedClientRef = useRef<AggregatedClient | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [showAssignModal, setShowAssignModal] = useState(false)
@@ -936,7 +934,10 @@ export default function ClientsPage() {
 
   const loadClientDetail = useCallback(async (client: AggregatedClient) => {
     setDetailLoading(true)
-    setEditMode(false)
+    const resetEditState = () => {
+      /* no-op: legacy edit UI removed */
+    }
+    resetEditState()
     setDetailError(null)
     setDetailData(null)
     setAdherenceStats(null)
@@ -1335,14 +1336,10 @@ export default function ClientsPage() {
       const trainerSessionsObj = Object.fromEntries(Array.from(trainerSessionCount.entries())) as Record<string, number>
 
       setDetailData({ contracts, invoices, clientId, trainers, splits, trainerSessions: trainerSessionsObj })
-      const [firstName = '', ...restNames] = (client.name ?? '').split(' ')
-      const lastName = restNames.join(' ').trim()
-      setEditForm({
-        firstName: firstName.trim(),
-        lastName,
-        email: client.email ?? '',
-        phone: client.phone ?? '',
-      })
+      const populateEditForm = () => {
+        /* no-op: legacy edit UI removed */
+      }
+      populateEditForm()
     } catch (error) {
       console.error('Error loading client detail:', error)
       setDetailError('Unable to load client details. Please try again.')

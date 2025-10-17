@@ -215,12 +215,14 @@ export default function ContractSchedulePage() {
       // 1. Save schedule entries
       await supabase.from('contract_schedule_entries').delete().eq('contract_id', contractId)
 
-      const schedulePayload = slots.map(slot => ({
+      const schedulePayload: Database['public']['Tables']['contract_schedule_entries']['Insert'][] = slots.map((slot) => ({
         contract_id: contractId,
         schedule_day: slot.day,
         start_time: slot.startTime,
         trainer_id: selectedTrainerId,
-        created_by: user?.id,
+        created_by: user?.id ?? null,
+        recurring,
+        notes: specialNotes || null
       }))
 
       const { error: scheduleError } = await supabase.from('contract_schedule_entries').insert(schedulePayload)
@@ -232,14 +234,15 @@ export default function ContractSchedulePage() {
       // Parse as local date to avoid UTC shift on plain "YYYY-MM-DD"
       const startDate = parse(contract.start_date, 'yyyy-MM-dd', new Date())
       const endDate = contract.end_date ? parseISO(contract.end_date) : null
-      const participantIds = participants.map(participant => participant.id)
+      const participantIds = participants.map((participant) => participant.id)
       const contractSessionType = participantIds.length > 1 ? 'small_group' : '1_on_1'
       const fallbackWeeks = contract.package_length ?? (slots.length ? Math.max(1, Math.ceil((contract.total_sessions ?? slots.length) / slots.length)) : 1)
 
       type InsertSession = Database['public']['Tables']['training_sessions']['Insert']
-      const allSessions: Omit<InsertSession, 'session_number'> & { session_number?: number }[] = []
+      type SessionDraft = Omit<InsertSession, 'session_number'> & { session_number?: number }
+      const sessionDrafts: SessionDraft[] = []
 
-      slots.forEach((slot, slotIndex) => {
+      slots.forEach((slot) => {
         const [hours, minutes] = slot.startTime.split(':').map(Number)
         let occurrence = 0
         let currentDate = getNextDayOfWeek(startDate, slot.day)
@@ -253,7 +256,7 @@ export default function ContractSchedulePage() {
           sessionStart.setHours(hours ?? 0, minutes ?? 0, 0, 0)
           const sessionEnd = addHours(sessionStart, 1)
 
-          allSessions.push({
+          sessionDrafts.push({
             contract_id: contractId,
             trainer_id: selectedTrainerId,
             session_date: format(currentDate, 'yyyy-MM-dd'),
@@ -262,8 +265,8 @@ export default function ContractSchedulePage() {
             session_type: contractSessionType,
             status: 'scheduled',
             notes: specialNotes || null,
-            participant_ids: participantIds,
-            created_by: user?.id,
+            participant_ids: participantIds.length ? participantIds : null,
+            created_by: user?.id ?? null,
           })
 
           occurrence += 1
@@ -272,9 +275,9 @@ export default function ContractSchedulePage() {
         }
       })
 
-      if (allSessions.length) {
+      if (sessionDrafts.length) {
         // Sort by (session_date ASC, start_time ASC) and assign sequential numbers
-        const sorted = allSessions.sort((a, b) => {
+        const sorted = [...sessionDrafts].sort((a, b) => {
           const da = a.session_date! + ' ' + (a.start_time || '00:00')
           const db = b.session_date! + ' ' + (b.start_time || '00:00')
           return da.localeCompare(db)

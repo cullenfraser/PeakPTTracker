@@ -831,6 +831,55 @@ export type Database = {
           }
         ]
       }
+      client_trainer_session_splits: {
+        Row: {
+          id: string
+          created_at: Timestamp | null
+          created_by: string | null
+          client_id: string
+          trainer_id: string
+          allocated_sessions: number
+          effective_from: string
+          effective_to: string | null
+          notes: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: Timestamp | null
+          created_by?: string | null
+          client_id: string
+          trainer_id: string
+          allocated_sessions: number
+          effective_from?: string
+          effective_to?: string | null
+          notes?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: Timestamp | null
+          created_by?: string | null
+          client_id?: string
+          trainer_id?: string
+          allocated_sessions?: number
+          effective_from?: string
+          effective_to?: string | null
+          notes?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'client_trainer_session_splits_client_id_fkey'
+            columns: ['client_id']
+            referencedRelation: 'clients'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'client_trainer_session_splits_trainer_id_fkey'
+            columns: ['trainer_id']
+            referencedRelation: 'trainers'
+            referencedColumns: ['id']
+          }
+        ]
+      }
       clients: {
         Row: {
           id: string

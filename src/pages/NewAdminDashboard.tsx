@@ -38,7 +38,7 @@ import {
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts'
 import { formatCurrency } from '@/lib/utils'
 
-const loadTrainerClients = async (trainerId: string) => {
+const loadTrainerClients = async (trainerId: string): Promise<TrainerModalClient[]> => {
   const { data: splitRows, error: splitError } = await supabase
     .from('client_trainer_session_splits')
     .select('client_id, allocated_sessions, clients(first_name, last_name, email, phone)')
@@ -47,34 +47,24 @@ const loadTrainerClients = async (trainerId: string) => {
 
   if (splitError) throw splitError
 
-  const rows = (splitRows ?? []) as Array<{
-    client_id: string
-    allocated_sessions: number | null
-    clients?: {
-      first_name: string | null
-      last_name: string | null
-      email: string | null
-      phone: string | null
-    } | null
-  }>
-
-  return rows
+  const mappedSplits = (splitRows ?? [])
+    .filter((row): row is typeof row & { client_id: string } => Boolean(row?.client_id))
     .map((row) => {
-      const first = row.clients?.first_name?.trim() ?? ''
-      const last = row.clients?.last_name?.trim() ?? ''
+      const first = row?.clients?.first_name?.trim() ?? ''
+      const last = row?.clients?.last_name?.trim() ?? ''
       const name = `${first} ${last}`.trim()
       return {
         id: row.client_id,
         name: name.length > 0 ? name : 'Client',
-        email: row.clients?.email ?? null,
-        phone: row.clients?.phone ?? null,
-        sessionCount: row.allocated_sessions ?? 0,
+        email: row?.clients?.email ?? null,
+        phone: row?.clients?.phone ?? null,
+        sessionCount: row?.allocated_sessions ?? 0,
       }
     })
     .sort((a, b) => a.name.localeCompare(b.name))
 
-  if (rows.length > 0) {
-    return rows
+  if (mappedSplits.length > 0) {
+    return mappedSplits
   }
 
   const { data: assignmentRows, error: assignmentError } = await supabase
@@ -85,14 +75,14 @@ const loadTrainerClients = async (trainerId: string) => {
 
   if (assignmentError) throw assignmentError
 
-  return (assignmentRows ?? [])
-    .filter((row) => row.client_id && row.clients)
+  const mappedAssignments = (assignmentRows ?? [])
+    .filter((row): row is typeof row & { client_id: string } => Boolean(row?.client_id && row?.clients))
     .map((row) => {
       const first = row.clients?.first_name?.trim() ?? ''
       const last = row.clients?.last_name?.trim() ?? ''
       const name = `${first} ${last}`.trim()
       return {
-        id: row.client_id as string,
+        id: row.client_id,
         name: name.length > 0 ? name : 'Client',
         email: row.clients?.email ?? null,
         phone: row.clients?.phone ?? null,
@@ -100,6 +90,8 @@ const loadTrainerClients = async (trainerId: string) => {
       }
     })
     .sort((a, b) => a.name.localeCompare(b.name))
+
+  return mappedAssignments
 }
 
 const loadTrainerClientCount = async (trainerId: string) => {
@@ -560,7 +552,6 @@ export default function NewAdminDashboard() {
   const [trainerModalSelectedMonth, setTrainerModalSelectedMonth] = useState('')
   const [trainerModalChartData, setTrainerModalChartData] = useState<TrainerModalChartData | null>(null)
   const [trainerModalClients, setTrainerModalClients] = useState<TrainerModalClient[]>([])
-  const [trainerSplitsAvailable, setTrainerSplitsAvailable] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     if (user) {
@@ -629,11 +620,6 @@ export default function NewAdminDashboard() {
     setTrainerModalSelectedMonth('')
     setTrainerModalChartData(null)
     setTrainerModalClients([])
-    setTrainerSplitsAvailable((prev) => {
-      const clone = { ...prev }
-      if (selectedTrainerId) delete clone[selectedTrainerId]
-      return clone
-    })
     try {
       const { data, error } = await supabase
         .from('trainers')
@@ -709,7 +695,6 @@ export default function NewAdminDashboard() {
 
       const clientList = await loadTrainerClients(trainerId)
       setTrainerModalClients(clientList)
-      setTrainerSplitsAvailable((prev) => ({ ...prev, [trainerId]: clientList.some((client) => client.sessionCount > 0) }))
     } catch (err) {
       console.error('Error loading trainer', err)
     } finally {
@@ -2006,10 +1991,11 @@ export default function NewAdminDashboard() {
                               ))}
                             </Pie>
                             <Tooltip
-                              formatter={(value: number, name: string, { payload }: { payload: SessionSlice }) => [
-                                `${value} sessions (${payload.percentage}% )`,
-                                name,
-                              ]}
+                              formatter={(value: number, name: string, item) => {
+                                const session = (item?.payload as SessionSlice | undefined)
+                                const percentage = session?.percentage ?? 0
+                                return [`${value} sessions (${percentage}% )`, name]
+                              }}
                             />
                           </PieChart>
                         </ResponsiveContainer>
@@ -2040,7 +2026,13 @@ export default function NewAdminDashboard() {
                                 <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                               ))}
                             </Pie>
-                            <Tooltip formatter={(value: number, name: string, props: any) => [`${value} sessions (${props.payload.percentage}% )`, name]} />
+                            <Tooltip
+                              formatter={(value: number, name: string, item) => {
+                                const session = (item?.payload as SessionSlice | undefined)
+                                const percentage = session?.percentage ?? 0
+                                return [`${value} sessions (${percentage}% )`, name]
+                              }}
+                            />
                           </PieChart>
                         </ResponsiveContainer>
                         <div className="mt-3 space-y-1 text-sm">
