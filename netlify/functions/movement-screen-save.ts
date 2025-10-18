@@ -31,7 +31,7 @@ const handler: Handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body || '{}') as any
-    const { clientId, pattern, featurePayload, gemini } = body
+    const { clientId, pattern, featurePayload, analysis } = body
 
     if (!clientId || typeof clientId !== 'string') {
       return { statusCode: 400, body: JSON.stringify({ error: 'clientId required' }), headers: CORS_HEADERS }
@@ -42,8 +42,8 @@ const handler: Handler = async (event) => {
     if (!featurePayload || typeof featurePayload !== 'object') {
       return { statusCode: 400, body: JSON.stringify({ error: 'featurePayload required' }), headers: CORS_HEADERS }
     }
-    if (!gemini || typeof gemini !== 'object' || !Array.isArray(gemini.kpis)) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'gemini response required' }), headers: CORS_HEADERS }
+    if (!analysis || typeof analysis !== 'object' || !Array.isArray(analysis.kpis)) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'analysis result required' }), headers: CORS_HEADERS }
     }
 
     const { data: screenData, error: screenError } = await supabaseAdmin
@@ -51,9 +51,9 @@ const handler: Handler = async (event) => {
       .insert({
         client_id: clientId,
         pattern,
-        overall_score_0_3: gemini.overall_score_0_3 ?? 0,
-        priority_order: gemini.priority_order ?? [],
-        gemini_json: gemini,
+        overall_score_0_3: analysis.overall_score_0_3 ?? 0,
+        priority_order: analysis.priority_order ?? [],
+        analysis_json: analysis,
       })
       .select('id')
       .single()
@@ -65,7 +65,7 @@ const handler: Handler = async (event) => {
 
     const screenId = screenData.id
 
-    const kpiRows = (gemini.kpis as any[]).map((kpi) => ({
+    const kpiRows = (analysis.kpis as any[]).map((kpi) => ({
       screen_id: screenId,
       key: kpi.key,
       pass: !!kpi.pass,

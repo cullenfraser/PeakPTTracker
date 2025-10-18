@@ -79,7 +79,7 @@ interface KpiResult {
   pass_override?: boolean | null
 }
 
-interface GeminiMovementResponse {
+interface MovementAnalysisResponse {
   pattern: Pattern
   kpis: KpiResult[]
   overall_score_0_3: 0 | 1 | 2 | 3
@@ -102,9 +102,9 @@ export default function ElevateMovementScreenPage() {
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [isRequestingCamera, setIsRequestingCamera] = useState(false)
   const [payload, setPayload] = useState<FeaturePayload | null>(null)
-  const [geminiResponse, setGeminiResponse] = useState<GeminiMovementResponse | null>(null)
-  const [geminiLoading, setGeminiLoading] = useState(false)
-  const [geminiError, setGeminiError] = useState<string | null>(null)
+  const [analysisResponse, setAnalysisResponse] = useState<MovementAnalysisResponse | null>(null)
+  const [analysisLoading, setAnalysisLoading] = useState(false)
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [saveLoading, setSaveLoading] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null)
@@ -112,6 +112,8 @@ export default function ElevateMovementScreenPage() {
   const [kpiOriginals, setKpiOriginals] = useState<Record<string, boolean>>({})
   const detectorRef = useRef<PoseDetector | null>(null)
   const rafRef = useRef<number | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const frameBufferRef = useRef<string[]>([])
   const captureMetricsRef = useRef<{
     startTs: number
     frameCount: number
@@ -144,6 +146,21 @@ export default function ElevateMovementScreenPage() {
     const suffix = clientName ?? (clientId ? `Client ${clientId}` : null)
     return suffix ? `${base} • ${suffix}` : base
   }, [pattern.title, clientName, clientId])
+
+  const KPI_DESCRIPTIONS: Record<string, string> = {
+    depth: 'Depth achieved relative to target range; sufficient ROM maintained.',
+    knee_valgus: 'Knee tracking over the foot; minimize inward collapse (valgus).',
+    trunk_flex: 'Torso inclination and bracing; maintain a neutral, controlled spine.',
+    tempo: 'Eccentric and concentric pacing; smooth control across phases.',
+    hinge_ratio: 'Hip vs knee flexion balance indicating a proper hinge pattern.',
+    heels_down: 'Foot stability and heel contact maintained through the rep.',
+    scap_timing_ok: 'Scapular setting and timing relative to torso/arm motion.',
+    torso_sway_deg: 'Side-to-side sway indicating stability and control.',
+    elbow_path_deg: 'Elbow travel path relative to the intended groove.',
+    wrist_dev_deg: 'Wrist deviation and neutral grip control under load.',
+    knee_flex_deg: 'Knee flexion angle quality and consistency.',
+    hip_flex_deg: 'Hip flexion angle quality and consistency.',
+  }
 
   useEffect(() => {
     const fetchClient = async () => {
@@ -186,7 +203,13 @@ export default function ElevateMovementScreenPage() {
     setIsRequestingCamera(true)
     setCameraError(null)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 1280, height: 720 } })
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: 1280,
+          height: 720
+        }
+      })
       streamRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
@@ -322,6 +345,30 @@ export default function ElevateMovementScreenPage() {
     return computeFeaturePayload(reps)
   }, [capturedReps, clientId, computeFeaturePayload])
 
+  const captureCurrentFrame = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+    let canvas = canvasRef.current
+    if (!canvas) {
+      canvas = document.createElement('canvas')
+      canvasRef.current = canvas
+    }
+    const w = video.videoWidth || 640
+    const h = video.videoHeight || 360
+    if (!w || !h) return
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(video, 0, 0, w, h)
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.7)
+    if (!dataUrl) return
+    frameBufferRef.current.push(dataUrl)
+    if (frameBufferRef.current.length > 24) {
+      frameBufferRef.current.splice(0, frameBufferRef.current.length - 24)
+    }
+  }, [])
+
   const processPose = useCallback((pose: Pose | undefined) => {
     if (!pose) return
     const leftHip = point(pose, 'left_hip')
@@ -365,16 +412,20 @@ export default function ElevateMovementScreenPage() {
       const poses = await detectorRef.current.estimatePoses(videoRef.current, { flipHorizontal: true })
       processPose(poses[0])
       captureMetricsRef.current.frameCount += 1
+      if (captureMetricsRef.current.frameCount % 3 === 0) {
+        captureCurrentFrame()
+      }
     } catch (error) {
       console.error('Pose estimation error', error)
     }
     rafRef.current = requestAnimationFrame(captureLoop)
-  }, [processPose])
+  }, [processPose, captureCurrentFrame])
 
   const startRecording = useCallback(async () => {
     await ensureCamera()
     await loadDetector()
     if (!detectorRef.current) return
+    frameBufferRef.current = []
     captureMetricsRef.current = {
       startTs: performance.now(),
       frameCount: 0,
@@ -435,53 +486,58 @@ export default function ElevateMovementScreenPage() {
     const assembled = computeFeaturePayload(reps)
     setPayload(assembled)
     setIsRecording(false)
-  }, [computeFeaturePayload, std, average])
+  }, [average, computeFeaturePayload, std])
 
   const stopRecording = useCallback(() => {
     finalizeCapture()
     stopCamera()
   }, [finalizeCapture])
 
-  const sendToGemini = useCallback(async () => {
-    setGeminiError(null)
-    setGeminiResponse(null)
+  const runAnalysis = useCallback(async () => {
+    setAnalysisError(null)
+    setAnalysisResponse(null)
     setSaveSuccess(null)
     setKpiOverrides({})
     setKpiOriginals({})
     const built = payload ?? buildMockPayload()
     if (!built) {
-      setGeminiError('Capture at least one rep and ensure clientId is present before analyzing.')
+      setAnalysisError('Capture at least one rep and ensure clientId is present before analyzing.')
       return
     }
     setPayload(built)
-    setGeminiLoading(true)
+    setAnalysisLoading(true)
     try {
-      const resp = await fetch('/.netlify/functions/gemini-interpret', {
+      const frames = frameBufferRef.current.slice()
+      const requestBody = frames.length >= 8 ? { pattern: patternKey, frames } : built
+      const resp = await fetch('/.netlify/functions/movement-analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(built)
+        body: JSON.stringify(requestBody)
       })
       if (!resp.ok) {
-        throw new Error(`Gemini request failed (${resp.status})`)
+        const errJson = await resp.json().catch(() => ({}))
+        const msg = errJson?.error ? `${errJson.error}${errJson.detail ? `: ${errJson.detail}` : ''}` : `Analysis request failed (${resp.status})`
+        setAnalysisError(msg)
+        return
       }
       const data = await resp.json()
       if (data && Array.isArray(data.kpis) && data.kpis.length === 4) {
-        const gemini = data as GeminiMovementResponse
-        setGeminiResponse(gemini)
-        const originals = Object.fromEntries(gemini.kpis.map((kpi) => [kpi.key, !!kpi.pass]))
+        const analysis = data as MovementAnalysisResponse
+        setAnalysisResponse(analysis)
+        const originals = Object.fromEntries(analysis.kpis.map((kpi: KpiResult) => [kpi.key, !!kpi.pass]))
         setKpiOriginals(originals)
         setKpiOverrides(originals)
       } else {
-        setGeminiError('Gemini response not yet implemented. Stub message returned.')
-        console.info('Gemini stub response:', data)
+        setAnalysisError('Analysis response missing KPI data. See console for payload.')
+        console.info('Analysis response:', data)
       }
     } catch (error: any) {
-      console.error('Gemini analyze error', error)
-      setGeminiError(error?.message ?? 'Failed to analyze movement')
+      console.error('Movement analysis error', error)
+      setAnalysisError(error?.message ?? 'Failed to analyze movement')
     } finally {
-      setGeminiLoading(false)
+      setAnalysisLoading(false)
     }
-  }, [payload, buildMockPayload])
+  }, [buildMockPayload, payload, patternKey])
 
   const saveScreen = useCallback(async (applyToPlan: boolean) => {
     setSaveError(null)
@@ -490,15 +546,15 @@ export default function ElevateMovementScreenPage() {
       setSaveError('Missing clientId in query string.')
       return
     }
-    if (!payload || !geminiResponse) {
+    if (!payload || !analysisResponse) {
       setSaveError('Run analysis before saving.')
       return
     }
     setSaveLoading(true)
     try {
-      const mergedGemini: GeminiMovementResponse = {
-        ...geminiResponse,
-        kpis: geminiResponse.kpis.map((kpi) => ({
+      const mergedAnalysis: MovementAnalysisResponse = {
+        ...analysisResponse,
+        kpis: analysisResponse.kpis.map((kpi: KpiResult) => ({
           ...kpi,
           pass_original: kpi.pass_original ?? kpi.pass,
           pass_override: (kpiOverrides[kpi.key] ?? kpi.pass) === (kpiOriginals[kpi.key] ?? kpi.pass) ? null : (kpiOverrides[kpi.key] ?? kpi.pass),
@@ -509,7 +565,7 @@ export default function ElevateMovementScreenPage() {
       const res = await fetch('/.netlify/functions/movement-screen-save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, pattern: payload.pattern, featurePayload: payload, gemini: mergedGemini })
+        body: JSON.stringify({ clientId, pattern: payload.pattern, featurePayload: payload, analysis: mergedAnalysis })
       })
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}))
@@ -536,7 +592,7 @@ export default function ElevateMovementScreenPage() {
     } finally {
       setSaveLoading(false)
     }
-  }, [clientId, payload, geminiResponse])
+  }, [analysisResponse, clientId, kpiOriginals, kpiOverrides, payload])
 
   return (
     <RequireTrainer>
@@ -596,19 +652,24 @@ export default function ElevateMovementScreenPage() {
                         onClick={() => {
                           const mock = buildMockPayload()
                           if (mock) {
+                            // Enable demo mode so the backend returns canned results
+                            mock.flags.sample = true
                             setCapturedReps(mock.reps)
                             setPayload(mock)
                           }
-                          setGeminiResponse(null)
-                          setGeminiError(null)
+                          setAnalysisResponse(null)
+                          setAnalysisError(null)
+                          setTimeout(() => {
+                            void runAnalysis()
+                          }, 0)
                         }}
                       >Mock reps</button>
                       <button
                         type="button"
                         className="w-full sm:w-auto px-3 py-2 rounded-md border text-sm"
-                        onClick={sendToGemini}
-                        disabled={geminiLoading}
-                      >{geminiLoading ? 'Analyzing…' : 'Analyze sample'}</button>
+                        onClick={runAnalysis}
+                        disabled={analysisLoading}
+                      >{analysisLoading ? 'Analyzing…' : 'Analyze sample'}</button>
                     </div>
                   </div>
                   <div className="text-xs text-muted-foreground">
@@ -616,43 +677,41 @@ export default function ElevateMovementScreenPage() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border bg-card p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm font-semibold">Feature payload preview</div>
-                    <span className="text-xs text-muted-foreground">Pattern: {patternKey}</span>
-                  </div>
-                  <pre className="h-40 overflow-auto rounded bg-muted p-3 text-xs text-muted-foreground">
-{JSON.stringify(payload ?? buildMockPayload(), null, 2)}
-                  </pre>
-                </div>
+                {/* Feature payload preview removed for end users */}
               </div>
 
               <aside className="space-y-4">
                 <div className="rounded-lg border bg-card p-4 space-y-3">
                   <div className="text-sm font-semibold">KPI results</div>
-                  {geminiError && <div className="rounded border border-red-300 bg-red-50 p-3 text-xs text-red-700">{geminiError}</div>}
-                  {!geminiResponse && !geminiError && (
+                  {analysisError && <div className="rounded border border-red-300 bg-red-50 p-3 text-xs text-red-700">{analysisError}</div>}
+                  {!analysisResponse && !analysisError && (
                     <p className="text-xs text-muted-foreground">
-                      After Gemini returns `GeminiMovementResponse`, render four cards with pass/fail status, scores, cues, regression/progression, and confidence meters.
+                      After the analyzer returns ``MovementAnalysisResponse``, render four cards with pass/fail status, scores, cues, regression/progression, and confidence meters.
                     </p>
                   )}
-                  {geminiResponse && (
+                  {analysisResponse && (
                     <div className="space-y-2">
                       <div className="rounded border bg-background p-3 text-xs text-muted-foreground">
-                        Overall score: <span className="font-semibold text-foreground">{geminiResponse.overall_score_0_3} / 3</span>
-                        {geminiResponse.global_notes && <div className="mt-1 text-muted-foreground">{geminiResponse.global_notes}</div>}
+                        Overall score: <span className="font-semibold text-foreground">{analysisResponse.overall_score_0_3} / 3</span>
+                        {analysisResponse.global_notes && <div className="mt-1 text-muted-foreground">{analysisResponse.global_notes}</div>}
                       </div>
-                      {geminiResponse.kpis.map((kpi) => {
+                      {analysisResponse.kpis.map((kpi) => {
                         const originalPass = kpiOriginals[kpi.key] ?? kpi.pass
                         const overrideValue = kpiOverrides[kpi.key]
                         const finalPass = overrideValue ?? originalPass
                         const overrideApplied = finalPass !== originalPass
+                        const desc = KPI_DESCRIPTIONS[kpi.key] ?? 'Key technique indicator for this pattern.'
+                        const noticed = (kpi.why && kpi.why.trim().length)
+                          ? kpi.why
+                          : `${finalPass ? 'Passing' : 'Needs work'} based on current estimate. Score ${kpi.score_0_3}/3.`
                         return (
                           <div key={kpi.key} className="rounded border bg-background p-3 space-y-2 text-xs text-muted-foreground">
                           <div className="flex items-center justify-between text-sm text-foreground">
                             <span className="font-semibold uppercase tracking-wide">{kpi.key.replace(/_/g, ' ')}</span>
                             <span>{kpi.score_0_3}/3 • {finalPass ? 'Pass' : 'Needs work'}</span>
                           </div>
+                          <div className="text-[11px] text-muted-foreground">What we evaluate: {desc}</div>
+                          <div className="text-[11px] text-muted-foreground">What we noticed: {noticed}</div>
                           <div className="flex items-center gap-2 text-xs">
                             <button
                               type="button"
@@ -694,7 +753,7 @@ export default function ElevateMovementScreenPage() {
                       })}
                     </div>
                   )}
-                  {geminiLoading && <div className="text-xs text-muted-foreground">Analyzing movement…</div>}
+                  {analysisLoading && <div className="text-xs text-muted-foreground">Analyzing movement…</div>}
                 </div>
 
                 <div className="rounded-lg border bg-card p-4 space-y-3">
@@ -708,13 +767,13 @@ export default function ElevateMovementScreenPage() {
                     <button
                       type="button"
                       className="h-10 rounded-md bg-[#3FAE52] text-white text-sm font-semibold disabled:opacity-60 w-full sm:w-auto"
-                      disabled={saveLoading || !geminiResponse}
+                      disabled={saveLoading || !analysisResponse}
                       onClick={() => void saveScreen(false)}
                     >{saveLoading ? 'Saving…' : 'Save screen'}</button>
                     <button
                       type="button"
                       className="h-10 rounded-md border text-sm disabled:opacity-60 w-full sm:w-auto"
-                      disabled={saveLoading || !geminiResponse}
+                      disabled={saveLoading || !analysisResponse}
                       onClick={() => void saveScreen(true)}
                     >{saveLoading ? 'Syncing…' : 'Save & apply to plan'}</button>
                     <button type="button" className="h-10 rounded-md border text-sm w-full sm:w-auto">Retake</button>
