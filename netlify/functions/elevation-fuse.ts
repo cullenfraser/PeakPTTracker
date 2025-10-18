@@ -32,7 +32,6 @@ const handler: Handler = async (event) => {
   try {
     const payload = JSON.parse(event.body || '{}') as any
     const clientId: string | undefined = payload?.clientId
-    const screenId: string | undefined = payload?.screenId
     const applyToPlan: boolean = !!payload?.applyToPlan
     if (!clientId) {
       return { statusCode: 400, body: JSON.stringify({ error: 'clientId is required' }), headers: CORS_HEADERS }
