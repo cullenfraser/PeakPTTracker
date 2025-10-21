@@ -261,7 +261,9 @@ export default function CalendarPage() {
     const today = new Date()
     const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
 
-    return sessions.map(session => {
+    return sessions
+      .filter(session => (session.status || '').toLowerCase() !== 'cancelled')
+      .map(session => {
       // Parse as local date to prevent UTC -> local day shift ("YYYY-MM-DD" is parsed as UTC by Date)
       const sessionDate = parse(session.session_date, 'yyyy-MM-dd', new Date())
       const [startHour, startMinute] = session.start_time.split(':').map(Number)

@@ -37,71 +37,102 @@ const handler: Handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'clientId is required' }), headers: CORS_HEADERS }
     }
 
-    const [{ data: consultData, error: consultError }, { data: screenData, error: screenError }] = await Promise.all([
-      supabaseAdmin.from('elevate_sessions').select('*').eq('client_id', clientId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    const [sessionsRes, latestScreenRes, inbodyRes] = await Promise.all([
+      supabaseAdmin
+        .from('elevate_session')
+        .select('id, created_at, clearance_level, ex, nu, sl, st')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: false })
+        .limit(2),
       supabaseAdmin
         .from('movement_screen')
-        .select('*, movement_kpi_logs(*), movement_features_raw(feature_payload)')
+        .select('id, recorded_at, overall_score_0_3, movement_kpi_logs(key,pass,score_0_3,why,cues,regression,progression)')
         .eq('client_id', clientId)
         .order('recorded_at', { ascending: false })
         .limit(1)
-        .maybeSingle()
+        .maybeSingle(),
+      supabaseAdmin
+        .from('inbody_history')
+        .select('created_at, body_fat_pct')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: false })
+        .limit(2)
     ])
 
-    if (consultError) {
-      console.error('[elevation-fuse] consult fetch error', consultError)
-    }
-    if (screenError) {
-      console.error('[elevation-fuse] screen fetch error', screenError)
-    }
+    const sessionRows: any[] = Array.isArray(sessionsRes.data) ? sessionsRes.data : []
+    const latestSession = sessionRows[0] ?? null
+    const prevSession = sessionRows[1] ?? null
+    const latestScreen = latestScreenRes.data ?? null
+    const inbodyRows: any[] = Array.isArray(inbodyRes.data) ? inbodyRes.data : []
 
-    const latestScreen = screenData ?? null
-    const latestConsult = consultData ?? null
-
-    if (!latestScreen && !latestConsult) {
-      return { statusCode: 404, body: JSON.stringify({ error: 'No consult or movement data found' }), headers: CORS_HEADERS }
-    }
+    const [{ data: latestGrip }, { data: goalsRow }] = await Promise.all([
+      latestSession
+        ? supabaseAdmin.from('elevate_grip').select('sum_best_kgf').eq('session_id', latestSession.id).maybeSingle()
+        : Promise.resolve({ data: null } as any),
+      latestSession
+        ? supabaseAdmin.from('elevate_goals').select('goal_type').eq('session_id', latestSession.id).maybeSingle()
+        : Promise.resolve({ data: null } as any)
+    ])
 
     const safeNumber = (value: any) => (typeof value === 'number' && Number.isFinite(value) ? value : null)
-    const screenOverall = safeNumber(latestScreen?.overall_score_0_3) ?? null
-    const screenPriorityOrder = Array.isArray(latestScreen?.priority_order) ? latestScreen?.priority_order : []
-    const kpiLogs = Array.isArray(latestScreen?.movement_kpi_logs) ? latestScreen?.movement_kpi_logs : []
 
-    const movementQuality = screenOverall !== null ? Math.min(Math.max(screenOverall, 0), 3) : null
-    const topPriorities = screenPriorityOrder.slice(0, 3)
-    const failingKpis = kpiLogs.filter((kpi: any) => !kpi.pass)
+    const clearance = (latestSession?.clearance_level as string | null) ?? null
+    const safetyStatus = clearance === 'cleared_all' ? 'clear' : clearance === 'needs_clearance' ? 'needs_clearance' : clearance ? 'watch' : 'unknown'
 
-    const consultSafety = latestConsult?.safety_status ?? 'unknown'
-    const consultHabits = safeNumber(latestConsult?.habit_consistency_pct)
-    const consultGripDelta = safeNumber(latestConsult?.grip_delta_pct)
-    const consultBodyCompDelta = safeNumber(latestConsult?.body_comp_delta)
-    const consultGoalStatus = latestConsult?.goal_status ?? 'pending'
+    const habitScores = [latestSession?.ex, latestSession?.nu, latestSession?.sl, latestSession?.st]
+      .map((v) => (typeof v === 'number' ? v : null))
+      .filter((v): v is number => v !== null)
+    const habitsPct = habitScores.length ? Math.round((habitScores.reduce((a, b) => a + b, 0) / habitScores.length) * 25) : null
+
+    let gripDeltaPct: number | null = null
+    if (latestSession && prevSession) {
+      const { data: prevGrip } = await supabaseAdmin.from('elevate_grip').select('sum_best_kgf').eq('session_id', prevSession.id).maybeSingle()
+      const currentGrip = safeNumber(latestGrip?.sum_best_kgf)
+      const priorGrip = safeNumber(prevGrip?.sum_best_kgf)
+      if (currentGrip != null && priorGrip != null && priorGrip !== 0) {
+        gripDeltaPct = ((currentGrip - priorGrip) / priorGrip) * 100
+      }
+    }
+
+    let bodyCompDelta: number | null = null
+    if (inbodyRows.length >= 2) {
+      const current = safeNumber(inbodyRows[0]?.body_fat_pct)
+      const prior = safeNumber(inbodyRows[1]?.body_fat_pct)
+      if (current != null && prior != null) {
+        bodyCompDelta = current - prior
+      }
+    }
+
+    const kpis: any[] = Array.isArray((latestScreen as any)?.movement_kpi_logs) ? (latestScreen as any).movement_kpi_logs : []
+    const failing: any[] = kpis.filter((k: any) => !k.pass)
+    const orderedByScore: any[] = [...kpis].sort((a: any, b: any) => (safeNumber(a.score_0_3) ?? 99) - (safeNumber(b.score_0_3) ?? 99))
+    const topPriorities = orderedByScore.slice(0, 3).map((k: any) => k.key)
 
     const tiles = {
       safety: {
-        status: consultSafety,
-        notes: latestConsult?.safety_notes ?? null
+        status: safetyStatus,
+        notes: null
       },
       goals: {
-        status: consultGoalStatus,
-        notes: latestConsult?.goal_notes ?? null
+        status: goalsRow?.goal_type ? 'active' : 'Not set',
+        notes: null
       },
       habits: {
-        consistency_pct: consultHabits,
-        commentary: latestConsult?.habit_notes ?? null
+        consistency_pct: habitsPct,
+        commentary: null
       },
       grip: {
-        delta_pct: consultGripDelta,
-        commentary: latestConsult?.grip_notes ?? null
+        delta_pct: gripDeltaPct,
+        commentary: null
       },
       body_comp: {
-        delta: consultBodyCompDelta,
-        commentary: latestConsult?.body_comp_notes ?? null
+        delta: bodyCompDelta,
+        commentary: null
       },
       movement: {
-        quality_score: movementQuality,
+        quality_score: safeNumber(latestScreen?.overall_score_0_3),
         priorities: topPriorities,
-        failing_kpis: failingKpis.map((kpi: any) => ({ key: kpi.key, why: kpi.why, cues: kpi.cues }))
+        failing_kpis: failing.map((k: any) => ({ key: k.key, why: k.why ?? null, cues: Array.isArray(k.cues) ? k.cues : [] }))
       }
     }
 
@@ -109,27 +140,22 @@ const handler: Handler = async (event) => {
       ? {
           actions: topPriorities.map((kpiKey: string) => ({
             kpi: kpiKey,
-            focus: failingKpis.find((kpi: any) => kpi.key === kpiKey)?.why ?? 'Reinforce fundamentals',
-            regression: failingKpis.find((kpi: any) => kpi.key === kpiKey)?.regression ?? null,
-            progression: failingKpis.find((kpi: any) => kpi.key === kpiKey)?.progression ?? null
+            focus: failing.find((k: any) => k.key === kpiKey)?.why ?? 'Reinforce fundamentals',
+            regression: null,
+            progression: null
           })),
-          notes: latestConsult?.plan_notes ?? null
+          notes: null
         }
       : null
 
     const priorities = {
       highlights: topPriorities,
-      rationale: failingKpis.slice(0, 3).map((kpi: any) => ({ key: kpi.key, why: kpi.why, cues: kpi.cues }))
+      rationale: failing.slice(0, 3).map((k: any) => ({ key: k.key, why: k.why ?? 'Focus next', cues: Array.isArray(k.cues) ? k.cues : [] }))
     }
 
     const { data: snapshot, error: snapshotError } = await supabaseAdmin
       .from('elevation_map_snapshots')
-      .insert({
-        client_id: clientId,
-        tiles,
-        priorities,
-        plan
-      })
+      .insert({ client_id: clientId, tiles, priorities, plan })
       .select('id, created_at')
       .single()
 

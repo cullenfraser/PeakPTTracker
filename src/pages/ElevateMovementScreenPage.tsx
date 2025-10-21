@@ -110,10 +110,22 @@ export default function ElevateMovementScreenPage() {
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null)
   const [kpiOverrides, setKpiOverrides] = useState<Record<string, boolean>>({})
   const [kpiOriginals, setKpiOriginals] = useState<Record<string, boolean>>({})
+  const [countdown, setCountdown] = useState<number | null>(null)
+  const [cameraOverlayOpen, setCameraOverlayOpen] = useState(false)
+  const overlayVideoRef = useRef<HTMLVideoElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const recordChunksRef = useRef<BlobPart[]>([])
+  const recordedBlobRef = useRef<Blob | null>(null)
+  const recordStopTimeoutRef = useRef<number | null>(null)
+  const recordIntervalRef = useRef<number | null>(null)
+  const [recordMs, setRecordMs] = useState(0)
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null)
   const detectorRef = useRef<PoseDetector | null>(null)
   const rafRef = useRef<number | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const frameBufferRef = useRef<string[]>([])
+  const countdownTimeoutRef = useRef<number | null>(null)
   const captureMetricsRef = useRef<{
     startTs: number
     frameCount: number
@@ -163,30 +175,35 @@ export default function ElevateMovementScreenPage() {
   }
 
   useEffect(() => {
-    const fetchClient = async () => {
-      if (!clientId) {
-        setClientName(null)
-        return
-      }
-      try {
-        const { data, error } = await supabase.from('clients').select('first_name, last_name').eq('id', clientId).maybeSingle()
-        if (error) {
-          console.error('Failed to load client name', error)
-          setClientName(null)
-          return
-        }
-        if (!data) {
-          setClientName(null)
-          return
-        }
-        const name = `${data.first_name ?? ''} ${data.last_name ?? ''}`.trim()
-        setClientName(name || null)
-      } catch (error) {
-        console.error('Client lookup error', error)
-        setClientName(null)
-      }
+    if (!clientId) {
+      setClientName(null)
+      return
     }
-    void fetchClient()
+    let active = true
+    ;(async () => {
+      try {
+        const { data, error } = await supabase
+          .from('clients')
+          .select('first_name, last_name')
+          .eq('id', clientId)
+          .maybeSingle()
+        if (!active) return
+        if (error) {
+          console.error('Failed to load client', error)
+          setClientName(null)
+        } else {
+          const name = `${data?.first_name ?? ''} ${data?.last_name ?? ''}`.trim()
+          setClientName(name || null)
+        }
+      } catch (err: any) {
+        if (!active) return
+        console.error('Client lookup error', err)
+        setClientName(null)
+      }
+    })()
+    return () => {
+      active = false
+    }
   }, [clientId])
 
   useEffect(() => {
@@ -195,6 +212,16 @@ export default function ElevateMovementScreenPage() {
         streamRef.current.getTracks().forEach((track) => track.stop())
         streamRef.current = null
       }
+      if (countdownTimeoutRef.current) {
+        window.clearTimeout(countdownTimeoutRef.current)
+        countdownTimeoutRef.current = null
+      }
+    }
+  }, [])
+
+  const triggerHaptic = useCallback((pattern: number | number[]) => {
+    if (typeof window !== 'undefined' && window.navigator?.vibrate) {
+      window.navigator.vibrate(pattern)
     }
   }, [])
 
@@ -215,6 +242,10 @@ export default function ElevateMovementScreenPage() {
         videoRef.current.srcObject = stream
         await videoRef.current.play().catch(() => undefined)
         setCameraReady(true)
+      }
+      if (overlayVideoRef.current) {
+        overlayVideoRef.current.srcObject = stream
+        await overlayVideoRef.current.play().catch(() => undefined)
       }
     } catch (err: any) {
       console.error('Failed to access camera', err)
@@ -342,7 +373,15 @@ export default function ElevateMovementScreenPage() {
             heels_down: true
           }
         ]
-    return computeFeaturePayload(reps)
+    const assembled = computeFeaturePayload(reps)
+    if (!assembled) return null
+    return {
+      ...assembled,
+      flags: {
+        ...assembled.flags,
+        sample: true
+      }
+    }
   }, [capturedReps, clientId, computeFeaturePayload])
 
   const captureCurrentFrame = useCallback(() => {
@@ -356,16 +395,19 @@ export default function ElevateMovementScreenPage() {
     const w = video.videoWidth || 640
     const h = video.videoHeight || 360
     if (!w || !h) return
-    canvas.width = w
-    canvas.height = h
+    const targetW = 640
+    const ratio = w ? targetW / w : 1
+    const targetH = Math.max(1, Math.round(h * ratio))
+    canvas.width = targetW
+    canvas.height = targetH
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    ctx.drawImage(video, 0, 0, w, h)
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.7)
+    ctx.drawImage(video, 0, 0, targetW, targetH)
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.78)
     if (!dataUrl) return
     frameBufferRef.current.push(dataUrl)
-    if (frameBufferRef.current.length > 24) {
-      frameBufferRef.current.splice(0, frameBufferRef.current.length - 24)
+    if (frameBufferRef.current.length > 20) {
+      frameBufferRef.current.splice(0, frameBufferRef.current.length - 20)
     }
   }, [])
 
@@ -412,7 +454,8 @@ export default function ElevateMovementScreenPage() {
       const poses = await detectorRef.current.estimatePoses(videoRef.current, { flipHorizontal: true })
       processPose(poses[0])
       captureMetricsRef.current.frameCount += 1
-      if (captureMetricsRef.current.frameCount % 3 === 0) {
+      // Approximate ~4 fps sampling assuming ~30 fps input → capture every ~8 frames
+      if (captureMetricsRef.current.frameCount % 8 === 0) {
         captureCurrentFrame()
       }
     } catch (error) {
@@ -421,8 +464,82 @@ export default function ElevateMovementScreenPage() {
     rafRef.current = requestAnimationFrame(captureLoop)
   }, [processPose, captureCurrentFrame])
 
-  const startRecording = useCallback(async () => {
-    await ensureCamera()
+  const sampleFramesFromVideo = useCallback(async (url: string, maxFrames: number = 20) => {
+    try {
+      const vid = document.createElement('video')
+      vid.src = url
+      vid.muted = true
+      ;(vid as any).playsInline = true
+      await new Promise<void>((resolve, reject) => {
+        const onLoaded = () => resolve()
+        const onError = () => reject(new Error('Failed to load video for frame sampling'))
+        vid.addEventListener('loadedmetadata', onLoaded, { once: true })
+        vid.addEventListener('error', onError, { once: true })
+      })
+      const duration = Math.max(vid.duration || 0, 0)
+      const effective = Math.min(duration || 0, 30)
+      const count = Math.max(8, Math.min(maxFrames, Math.max(1, Math.round(effective * 4))))
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      const times: number[] = []
+      for (let i = 1; i <= count; i++) {
+        times.push((i * (effective || duration || 0)) / (count + 1))
+      }
+      frameBufferRef.current = []
+      for (const t of times) {
+        await new Promise<void>((resolve) => {
+          const onSeeked = () => resolve()
+          vid.addEventListener('seeked', onSeeked, { once: true })
+          try { vid.currentTime = t } catch { resolve() }
+        })
+        const w = vid.videoWidth || 640
+        const h = vid.videoHeight || 360
+        if (!w || !h) continue
+        const targetW = 640
+        const ratio = w ? targetW / w : 1
+        const targetH = Math.max(1, Math.round(h * ratio))
+        canvas.width = targetW
+        canvas.height = targetH
+        ctx.drawImage(vid, 0, 0, targetW, targetH)
+        try {
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.78)
+          if (dataUrl) frameBufferRef.current.push(dataUrl)
+        } catch {}
+      }
+    } catch (e) {
+      console.warn('Frame sampling failed', e)
+      frameBufferRef.current = []
+    }
+  }, [])
+
+  const handleNativeFileSelected = useCallback(async (e: any) => {
+    try {
+      const file: File | undefined = e?.target?.files?.[0]
+      if (!file) return
+      // Create local URL and attach to inline video for auto-replay
+      const url = URL.createObjectURL(file)
+      setRecordedUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url })
+      if (videoRef.current) {
+        try { (videoRef.current as any).srcObject = null } catch {}
+        videoRef.current.src = url
+        videoRef.current.loop = true
+        videoRef.current.controls = true
+        await videoRef.current.play().catch(() => undefined)
+      }
+      // Populate frames for analysis
+      await sampleFramesFromVideo(url, 12)
+      // Close any overlay camera if open
+      setCameraOverlayOpen(false)
+      stopCamera()
+      // Reset file input value so user can retake
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    } catch (err) {
+      console.error('Native capture selection failed', err)
+    }
+  }, [sampleFramesFromVideo, stopCamera])
+
+  const beginRecording = useCallback(async () => {
     await loadDetector()
     if (!detectorRef.current) return
     frameBufferRef.current = []
@@ -442,8 +559,61 @@ export default function ElevateMovementScreenPage() {
     setPayload(null)
     setPoseError(null)
     setIsRecording(true)
+    triggerHaptic([40, 60, 40])
     rafRef.current = requestAnimationFrame(captureLoop)
-  }, [captureLoop, ensureCamera, loadDetector])
+    // Start MediaRecorder for preview playback
+    const stream = streamRef.current
+    if (stream) {
+      recordChunksRef.current = []
+      const mime = (typeof (window as any).MediaRecorder !== 'undefined' && typeof MediaRecorder !== 'undefined')
+        ? (MediaRecorder as any).isTypeSupported?.('video/mp4;codecs=h264') ? 'video/mp4;codecs=h264'
+          : (MediaRecorder as any).isTypeSupported?.('video/webm;codecs=vp8') ? 'video/webm;codecs=vp8' : undefined
+        : undefined
+      try {
+        mediaRecorderRef.current = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
+      } catch {
+        mediaRecorderRef.current = new MediaRecorder(stream)
+      }
+      const mr = mediaRecorderRef.current
+      if (mr) {
+        mr.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) recordChunksRef.current.push(e.data)
+        }
+        mr.onstop = () => {
+          const type = (mr.mimeType || mime || 'video/webm').includes('mp4') ? 'video/mp4' : 'video/webm'
+          const blob = new Blob(recordChunksRef.current, { type })
+          recordedBlobRef.current = blob
+          const url = URL.createObjectURL(blob)
+          setRecordedUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url })
+        }
+        mr.start()
+        setRecordMs(0)
+        if (recordIntervalRef.current) { window.clearInterval(recordIntervalRef.current); recordIntervalRef.current = null }
+        recordIntervalRef.current = window.setInterval(() => {
+          setRecordMs((ms) => {
+            const next = ms + 100
+            return next
+          })
+        }, 100)
+        if (recordStopTimeoutRef.current) { window.clearTimeout(recordStopTimeoutRef.current); recordStopTimeoutRef.current = null }
+        recordStopTimeoutRef.current = window.setTimeout(() => {
+          // Auto-stop at 30s
+          stopOverlayRecording()
+        }, 30000)
+      }
+    }
+  }, [captureLoop, loadDetector, triggerHaptic])
+
+  const handleRecord = useCallback(async () => {
+    if (isRecording || countdown !== null) return
+    await ensureCamera()
+    setCapturedReps([])
+    setPayload(null)
+    setAnalysisResponse(null)
+    setAnalysisError(null)
+    triggerHaptic(40)
+    setCountdown(3)
+  }, [analysisError, analysisResponse, countdown, ensureCamera, isRecording, triggerHaptic])
 
   const finalizeCapture = useCallback(() => {
     if (rafRef.current) {
@@ -486,12 +656,19 @@ export default function ElevateMovementScreenPage() {
     const assembled = computeFeaturePayload(reps)
     setPayload(assembled)
     setIsRecording(false)
+    triggerHaptic([60, 40])
   }, [average, computeFeaturePayload, std])
 
-  const stopRecording = useCallback(() => {
+  const stopOverlayRecording = useCallback(() => {
+    if (recordIntervalRef.current) { window.clearInterval(recordIntervalRef.current); recordIntervalRef.current = null }
+    if (recordStopTimeoutRef.current) { window.clearTimeout(recordStopTimeoutRef.current); recordStopTimeoutRef.current = null }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try { mediaRecorderRef.current.stop() } catch {}
+    }
     finalizeCapture()
-    stopCamera()
   }, [finalizeCapture])
+
+  const [uploadMeta, setUploadMeta] = useState<{ storageKey: string; clip_duration_s_est?: number } | null>(null)
 
   const runAnalysis = useCallback(async () => {
     setAnalysisError(null)
@@ -499,6 +676,7 @@ export default function ElevateMovementScreenPage() {
     setSaveSuccess(null)
     setKpiOverrides({})
     setKpiOriginals({})
+    setUploadMeta(null)
     const built = payload ?? buildMockPayload()
     if (!built) {
       setAnalysisError('Capture at least one rep and ensure clientId is present before analyzing.')
@@ -508,12 +686,32 @@ export default function ElevateMovementScreenPage() {
     setAnalysisLoading(true)
     try {
       const frames = frameBufferRef.current.slice()
+      if (recordedBlobRef.current && clientId) {
+        const fd = new FormData()
+        const fileName = (recordedBlobRef.current.type.includes('mp4') ? 'screen.mp4' : 'screen.webm')
+        fd.append('video', recordedBlobRef.current, fileName)
+        fd.append('clientId', clientId)
+        fd.append('pattern', patternKey)
+        fd.append('camera_view', 'front')
+        const up = await fetch('/.netlify/functions/movement-upload', { method: 'POST', body: fd })
+        if (!up.ok) {
+          const errJson = await up.json().catch(() => ({}))
+          throw new Error(errJson?.error ?? `Upload analyze failed (${up.status})`)
+        }
+        const uploaded = await up.json()
+        if (uploaded?.analysis?.kpis?.length === 4) {
+          const analysis = uploaded.analysis as MovementAnalysisResponse
+          setAnalysisResponse(analysis)
+          setUploadMeta({ storageKey: uploaded.storageKey, clip_duration_s_est: uploaded.clip_duration_s_est })
+          const originals = Object.fromEntries(analysis.kpis.map((kpi: KpiResult) => [kpi.key, !!kpi.pass]))
+          setKpiOriginals(originals)
+          setKpiOverrides(originals)
+          return
+        }
+      }
+      // Fallback: direct analyze from frames or feature payload
       const requestBody = frames.length >= 8 ? { pattern: patternKey, frames } : built
-      const resp = await fetch('/.netlify/functions/movement-analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-      })
+      const resp = await fetch('/.netlify/functions/movement-analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
       if (!resp.ok) {
         const errJson = await resp.json().catch(() => ({}))
         const msg = errJson?.error ? `${errJson.error}${errJson.detail ? `: ${errJson.detail}` : ''}` : `Analysis request failed (${resp.status})`
@@ -537,7 +735,7 @@ export default function ElevateMovementScreenPage() {
     } finally {
       setAnalysisLoading(false)
     }
-  }, [buildMockPayload, payload, patternKey])
+  }, [buildMockPayload, payload, patternKey, clientId])
 
   const saveScreen = useCallback(async (applyToPlan: boolean) => {
     setSaveError(null)
@@ -565,7 +763,7 @@ export default function ElevateMovementScreenPage() {
       const res = await fetch('/.netlify/functions/movement-screen-save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, pattern: payload.pattern, featurePayload: payload, analysis: mergedAnalysis })
+        body: JSON.stringify({ clientId, pattern: payload.pattern, featurePayload: payload, analysis: mergedAnalysis, storageKey: uploadMeta?.storageKey ?? null, clipDuration: uploadMeta?.clip_duration_s_est ?? null })
       })
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}))
@@ -585,6 +783,9 @@ export default function ElevateMovementScreenPage() {
         setSaveError(errJson.error ?? 'Saved, but Elevation Map refresh failed. Try again later.')
       } else {
         setSaveSuccess(applyToPlan ? 'Saved and synced to Elevation Map.' : 'Saved screen. Elevation Map refreshed.')
+        if (applyToPlan && clientId) {
+          navigate(`/elevate/map?clientId=${clientId}&tab=screen`)
+        }
       }
     } catch (error: any) {
       console.error('Save screen error', error)
@@ -594,9 +795,111 @@ export default function ElevateMovementScreenPage() {
     }
   }, [analysisResponse, clientId, kpiOriginals, kpiOverrides, payload])
 
+  useEffect(() => {
+    if (countdown === null) return
+    if (countdown === 0) {
+      setCountdown(null)
+      triggerHaptic([120])
+      void beginRecording()
+      return
+    }
+    countdownTimeoutRef.current = window.setTimeout(() => {
+      setCountdown((prev) => (prev && prev > 0 ? prev - 1 : prev))
+      triggerHaptic(30)
+    }, 1000)
+    return () => {
+      if (countdownTimeoutRef.current) {
+        window.clearTimeout(countdownTimeoutRef.current)
+        countdownTimeoutRef.current = null
+      }
+    }
+  }, [beginRecording, countdown, triggerHaptic])
+
   return (
     <RequireTrainer>
       <Layout>
+        {/* Full-screen camera overlay */}
+        {cameraOverlayOpen && (
+          <div className="fixed inset-0 z-50 bg-black">
+            <video ref={overlayVideoRef} className="absolute inset-0 h-full w-full object-cover" playsInline muted />
+            {/* Guidance */}
+            {!isRecording && countdown === null && !recordedUrl && (
+              <div className="absolute inset-x-0 text-center text-white text-sm opacity-90 top-[calc(var(--safe-top)+1.5rem)]">
+                Position the full body in frame. Tap Record when ready.
+              </div>
+            )}
+            {/* Countdown */}
+            {countdown !== null && !isRecording && (
+              <div className="absolute inset-0 flex items-center justify-center text-white text-6xl font-bold">
+                {countdown}
+              </div>
+            )}
+            {/* Bottom controls */}
+            <div className="absolute inset-x-0 flex flex-col items-center gap-4 px-6 bottom-[calc(var(--safe-bottom)+1.5rem)]">
+              {isRecording ? (
+                <button type="button" onClick={stopOverlayRecording} className="relative h-20 w-20 rounded-full bg-transparent">
+                  {(() => {
+                    const progress = Math.min(recordMs / 30000, 1)
+                    const deg = Math.round(progress * 360)
+                    return (
+                      <div
+                        className="absolute inset-0 rounded-full p-1"
+                        style={{
+                          background: `conic-gradient(#ef4444 ${deg}deg, rgba(255,255,255,0.2) 0deg)`,
+                        }}
+                      >
+                        <div className="h-full w-full rounded-full bg-black flex items-center justify-center">
+                          <div className="h-12 w-12 rounded-full bg-red-500" />
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </button>
+              ) : (recordedUrl || payload) ? (
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="rounded-md bg-[#3FAE52] text-white px-5 py-2 text-sm font-semibold"
+                    onClick={async () => {
+                      // Close overlay and replay the recorded video in-page
+                      setCameraOverlayOpen(false)
+                      stopCamera()
+                      if (videoRef.current && recordedUrl) {
+                        try {
+                          (videoRef.current as any).srcObject = null
+                        } catch {}
+                        videoRef.current.src = recordedUrl
+                        videoRef.current.loop = true
+                        videoRef.current.controls = true
+                        await videoRef.current.play().catch(() => undefined)
+                      } else {
+                        // No recorded file (unsupported MediaRecorder). Inline preview remains camera placeholder.
+                      }
+                    }}
+                  >Use screen</button>
+                  <button
+                    type="button"
+                    className="rounded-md border bg-white/90 backdrop-blur px-5 py-2 text-sm font-semibold"
+                    onClick={async () => {
+                      if (recordedUrl) { URL.revokeObjectURL(recordedUrl); setRecordedUrl(null) }
+                      setCapturedReps([])
+                      setPayload(null)
+                      setAnalysisResponse(null)
+                      setAnalysisError(null)
+                      await ensureCamera()
+                    }}
+                  >Retake</button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="rounded-full bg-[#3FAE52] text-white h-20 w-20 text-sm font-semibold flex items-center justify-center"
+                  onClick={handleRecord}
+                >Record</button>
+              )}
+            </div>
+          </div>
+        )}
         <div className="mx-auto max-w-6xl px-4 sm:px-6 py-8 sm:py-10 space-y-6">
           <div className="space-y-4">
             <button type="button" className="text-sm text-muted-foreground hover:text-foreground" onClick={()=>navigate(`/elevate/screen${clientId ? `?clientId=${clientId}` : ''}`)}>
@@ -612,7 +915,7 @@ export default function ElevateMovementScreenPage() {
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
               <div className="space-y-4">
-                <div className="relative aspect-video overflow-hidden rounded-lg border bg-black max-h-[60vh]">
+                <div className="relative aspect-[9/16] sm:aspect-video overflow-hidden rounded-lg border bg-black max-h-[80dvh] sm:max-h-none">
                   <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
                   {!cameraReady && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/60">
@@ -634,34 +937,49 @@ export default function ElevateMovementScreenPage() {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="text-sm font-semibold">Recording controls</div>
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                      {/* Hidden native camera input */}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="video/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={handleNativeFileSelected}
+                      />
                       <button
                         type="button"
-                        className={`w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium ${isRecording ? 'bg-red-500 text-white' : 'bg-[#3FAE52] text-white'} disabled:opacity-50`}
+                        className="w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium bg-[#3FAE52] text-white disabled:opacity-50"
                         disabled={isRequestingCamera || poseLoading}
                         onClick={async () => {
-                          if (!isRecording) {
-                            await startRecording()
+                          setRecordedUrl(null)
+                          setCapturedReps([])
+                          setPayload(null)
+                          setAnalysisResponse(null)
+                          setAnalysisError(null)
+                          // Prefer native camera full-screen on mobile
+                          if (fileInputRef.current) {
+                            fileInputRef.current.click()
                           } else {
-                            stopRecording()
+                            // Fallback to in-app overlay
+                            setCameraOverlayOpen(true)
+                            await ensureCamera()
                           }
                         }}
-                      >{isRecording ? 'Stop capture' : 'Start capture'}</button>
+                      >Start capture</button>
+                      {/* Keep demo/testing buttons */}
                       <button
                         type="button"
                         className="w-full sm:w-auto px-3 py-2 rounded-md border text-sm"
                         onClick={() => {
                           const mock = buildMockPayload()
                           if (mock) {
-                            // Enable demo mode so the backend returns canned results
                             mock.flags.sample = true
                             setCapturedReps(mock.reps)
                             setPayload(mock)
                           }
                           setAnalysisResponse(null)
                           setAnalysisError(null)
-                          setTimeout(() => {
-                            void runAnalysis()
-                          }, 0)
+                          setTimeout(() => { void runAnalysis() }, 0)
                         }}
                       >Mock reps</button>
                       <button
@@ -673,7 +991,13 @@ export default function ElevateMovementScreenPage() {
                     </div>
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {poseLoading ? 'Loading pose detection model…' : poseError ? poseError : 'Start capture to record a set of reps. Stop capture to build a FeaturePayload and analyze.'}
+                    {poseLoading
+                      ? 'Loading pose detection model…'
+                      : poseError
+                        ? poseError
+                        : cameraOverlayOpen
+                          ? 'Full-screen camera active. Use the on-screen controls.'
+                          : 'Tap Start capture to open camera. After recording, choose Use screen or Retake.'}
                   </div>
                 </div>
 

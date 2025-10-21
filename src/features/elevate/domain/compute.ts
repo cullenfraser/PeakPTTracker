@@ -182,3 +182,28 @@ export const horizonToMonths = (h: Horizon): number => {
     case '10y': return 120
   }
 }
+
+// Helpers for Pulse/tiles consumption
+export const habitConsistencyFromPillars = (p: { movement_0_4?: number|null; nutrition_0_4?: number|null; sleep_0_4?: number|null; stress_0_4?: number|null }): number => {
+  const vals = [p.movement_0_4, p.nutrition_0_4, p.sleep_0_4, p.stress_0_4].filter((v): v is number => typeof v === 'number' && isFinite(v))
+  if (vals.length === 0) return 0
+  const avg = vals.reduce((a,b)=>a+b,0) / vals.length
+  return Math.round(Math.max(0, Math.min(4, avg)) * 25)
+}
+
+export const badgesFromCheckinFlags = (flags: any[] | null | undefined): string[] => {
+  if (!Array.isArray(flags)) return []
+  const out: string[] = []
+  for (const f of flags) {
+    switch (f?.type) {
+      case 'low_attendance': out.push('Consistency'); break
+      case 'low_readiness': out.push('Recovery'); break
+      case 'low_readiness_repeat': out.push('Recovery x2'); break
+      case 'goal_at_risk': out.push('Goal at risk'); break
+      case 'kpi_persist_fail': out.push('Movement Focus'); break
+      default: break
+    }
+  }
+  // de-dup
+  return Array.from(new Set(out))
+}

@@ -31,7 +31,7 @@ const handler: Handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body || '{}') as any
-    const { clientId, pattern, featurePayload, analysis } = body
+    const { clientId, pattern, featurePayload, analysis, storageKey, clipDuration } = body
 
     if (!clientId || typeof clientId !== 'string') {
       return { statusCode: 400, body: JSON.stringify({ error: 'clientId required' }), headers: CORS_HEADERS }
@@ -53,7 +53,7 @@ const handler: Handler = async (event) => {
         pattern,
         overall_score_0_3: analysis.overall_score_0_3 ?? 0,
         priority_order: analysis.priority_order ?? [],
-        analysis_json: analysis,
+        gemini_json: analysis,
       })
       .select('id')
       .single()
@@ -67,6 +67,7 @@ const handler: Handler = async (event) => {
 
     const kpiRows = (analysis.kpis as any[]).map((kpi) => ({
       screen_id: screenId,
+      client_id: clientId,
       key: kpi.key,
       pass: !!kpi.pass,
       pass_original: typeof kpi.pass_original === 'boolean' ? kpi.pass_original : !!kpi.pass,
@@ -92,6 +93,18 @@ const handler: Handler = async (event) => {
     })
     if (featuresError) {
       console.warn('[movement-screen-save] features insert warning', featuresError)
+    }
+
+    if (storageKey && typeof storageKey === 'string') {
+      const { error: clipErr } = await supabaseAdmin.from('movement_clips').insert({
+        screen_id: screenId,
+        storage_path: storageKey,
+        duration_s: typeof clipDuration === 'number' ? clipDuration : null,
+        fps: 4
+      })
+      if (clipErr) {
+        console.warn('[movement-screen-save] clip insert warning', clipErr)
+      }
     }
 
     return {

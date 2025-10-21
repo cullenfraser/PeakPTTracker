@@ -24,6 +24,9 @@
     --input: 0 0% 89.8%;
     --ring: 142 62% 47%;
     --radius: 0.5rem;
+    /* Mobile safe area variables */
+    --safe-top: env(safe-area-inset-top);
+    --safe-bottom: env(safe-area-inset-bottom);
   }
 
   .dark {
@@ -55,6 +58,11 @@
   }
   body {
     @apply bg-background text-foreground;
+    min-height: 100dvh;
+    -webkit-tap-highlight-color: transparent;
+    text-size-adjust: 100%;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior-y: contain;
   }
 }
 

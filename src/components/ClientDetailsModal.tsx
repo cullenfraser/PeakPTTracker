@@ -76,8 +76,8 @@ export default function ClientDetailsModal({ isOpen, onClose, onSubmit, loading 
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
-      <Card className="w-full max-w-4xl my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto pt-[var(--safe-top)] pb-[var(--safe-bottom)]">
+      <Card className="w-full max-w-4xl my-8 max-h-[90dvh] overflow-y-auto">
         <CardHeader className="relative">
           <Button
             onClick={onClose}

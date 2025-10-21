@@ -61,6 +61,14 @@ export default function ElevateLandingPage() {
     navigate(`/elevate/screen?clientId=${id}`)
   }, [navigate])
 
+  const handlePulse = useCallback((id: string) => {
+    navigate(`/elevate/checkin?clientId=${id}`)
+  }, [navigate])
+
+  const handleMap = useCallback((id: string) => {
+    navigate(`/elevate/map?clientId=${id}`)
+  }, [navigate])
+
   useEffect(() => {
     const run = async () => {
       setLoading(true)
@@ -190,8 +198,18 @@ export default function ElevateLandingPage() {
                       <button
                         type="button"
                         className="px-3 py-2 rounded-md border text-sm hover:bg-accent"
+                        onClick={()=>handlePulse(c.id)}
+                      >Pulse</button>
+                      <button
+                        type="button"
+                        className="px-3 py-2 rounded-md border text-sm hover:bg-accent"
                         onClick={()=>handleScreen(c.id)}
                       >Screen</button>
+                      <button
+                        type="button"
+                        className="px-3 py-2 rounded-md border text-sm hover:bg-accent"
+                        onClick={()=>handleMap(c.id)}
+                      >Map</button>
                     </div>
                   </div>
                 ))
@@ -201,8 +219,8 @@ export default function ElevateLandingPage() {
         </div>
       </Layout>
       {resumePromptId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm space-y-5 rounded-lg border bg-card p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm pt-[var(--safe-top)] pb-[var(--safe-bottom)]">
+          <div className="w-full max-w-sm space-y-5 rounded-lg border bg-card p-6 shadow-xl max-h-[85dvh] overflow-y-auto">
             <div className="space-y-2">
               <h3 className="text-lg font-semibold">Pick up where you left off?</h3>
               <p className="text-sm text-muted-foreground">

@@ -18,6 +18,7 @@ import ElevateLandingPage from './pages/ElevateLandingPage'
 import ElevateWizardPage from './pages/ElevateWizardPage'
 import ElevateReportPage from './pages/ElevateReportPage'
 import ElevateScreenLandingPage from './pages/ElevateScreenLandingPage'
+import PulseWizardPage from './pages/PulseWizardPage'
 import ElevateMovementScreenPage from './pages/ElevateMovementScreenPage'
 import ElevationMapPage from './pages/ElevationMapPage'
 
@@ -132,10 +133,10 @@ function App() {
             }
           />
           <Route
-            path="/elevate/:sessionId"
+            path="/elevate/checkin"
             element={
               <ProtectedRoute>
-                <ElevateReportPage />
+                <PulseWizardPage />
               </ProtectedRoute>
             }
           />
@@ -144,6 +145,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <ElevateScreenLandingPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/elevate/:sessionId"
+            element={
+              <ProtectedRoute>
+                <ElevateReportPage />
               </ProtectedRoute>
             }
           />

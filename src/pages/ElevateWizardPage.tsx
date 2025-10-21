@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import Layout from '@/components/Layout'
 import RequireTrainer from '@/components/RequireTrainer'
 import ParqCard from '@/features/elevate/components/ParqCard'
@@ -22,6 +22,7 @@ import { useAuth } from '@/contexts/AuthContext'
 const steps = ['PAR-Q','SMART Goals','Pillars','Vitals/InBody','Grip','Results'] as const
 
 export default function ElevateWizardPage() {
+  const navigate = useNavigate()
   const { clientId } = useParams()
   const [searchParams] = useSearchParams()
   const modeParam = searchParams.get('mode')
@@ -240,6 +241,16 @@ export default function ElevateWizardPage() {
                       }}
                     />
                     <ExportButtons />
+                    <div className="flex items-center justify-end">
+                      <button
+                        type="button"
+                        className="h-10 rounded-md bg-[#3FAE52] px-4 text-sm font-semibold text-white hover:bg-[#339449]"
+                        onClick={async ()=>{
+                          try { await saveSummary() } catch {}
+                          if (clientId) navigate(`/elevate/map?clientId=${clientId}&tab=consult`)
+                        }}
+                      >Finish & View Map</button>
+                    </div>
                   </div>
                 )}
               </>

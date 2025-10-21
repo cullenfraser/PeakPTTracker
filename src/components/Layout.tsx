@@ -181,8 +181,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   ]
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b bg-card sticky top-0 z-50">
+    <div className="min-h-[100dvh] bg-background">
+      <header className="border-b bg-card sticky top-0 z-50 pt-[var(--safe-top)]">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-4">
@@ -273,7 +273,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <div
-          className={`md:hidden fixed inset-x-0 top-[72px] z-40 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 border-b transition-transform ${
+          className={`md:hidden fixed inset-x-0 top-[calc(72px+var(--safe-top))] z-40 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 border-b transition-transform ${
             mobileNavOpen ? 'translate-y-0' : '-translate-y-full'
           }`}
         >
@@ -303,8 +303,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
       </header>
-      <main className="container mx-auto px-4 py-6 pb-24 md:py-8 md:pb-8">{children}</main>
-      <nav className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+      <main className="container mx-auto px-4 py-6 md:py-8 pb-[calc(64px+var(--safe-bottom))] md:pb-8">{children}</main>
+      <nav className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 pb-[var(--safe-bottom)]">
         <div className="flex justify-around items-stretch">
           {navItems.map(item => {
             const Icon = item.icon
