@@ -41,8 +41,6 @@ interface PulseCheckin {
   flags: any[] | null
 }
 
-const formatScore = (score: number | null | undefined) => (typeof score === 'number' && Number.isFinite(score) ? score.toFixed(1) : '—')
-
 const movementPriorityLabel: Record<string, string> = {
   squat_depth_control: 'Depth control',
   squat_knee_tracking: 'Knee tracking',
