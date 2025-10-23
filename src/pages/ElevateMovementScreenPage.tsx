@@ -1058,7 +1058,6 @@ export default function ElevateMovementScreenPage() {
       // Close any overlay camera if open
       setCameraOverlayOpen(false)
       stopCamera()
-      setCameraReady(false)
       // Reset file input value so user can retake
       if (fileInputRef.current) fileInputRef.current.value = ''
     } catch (err) {
