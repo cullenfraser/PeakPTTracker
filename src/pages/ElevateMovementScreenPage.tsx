@@ -516,8 +516,6 @@ export default function ElevateMovementScreenPage() {
   const [capturedReps, setCapturedReps] = useState<RepMetrics[]>([])
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
-  const [cameraReady, setCameraReady] = useState(false)
-  const [cameraError, setCameraError] = useState<string | null>(null)
   const [isRequestingCamera, setIsRequestingCamera] = useState(false)
   const [payload, setPayload] = useState<FeaturePayload | null>(null)
   const [analysisResponse, setAnalysisResponse] = useState<MovementAnalysisResponse | null>(null)
@@ -692,7 +690,6 @@ export default function ElevateMovementScreenPage() {
   const ensureCamera = async () => {
     if (streamRef.current || isRequestingCamera) return
     setIsRequestingCamera(true)
-    setCameraError(null)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -705,7 +702,6 @@ export default function ElevateMovementScreenPage() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         await videoRef.current.play().catch(() => undefined)
-        setCameraReady(true)
       }
       if (overlayVideoRef.current) {
         overlayVideoRef.current.srcObject = stream
@@ -713,7 +709,6 @@ export default function ElevateMovementScreenPage() {
       }
     } catch (err: any) {
       console.error('Failed to access camera', err)
-      setCameraError(err?.message ?? 'Unable to access camera. Please check permissions and hardware.')
     } finally {
       setIsRequestingCamera(false)
     }
@@ -727,7 +722,6 @@ export default function ElevateMovementScreenPage() {
     if (videoRef.current) {
       videoRef.current.srcObject = null
     }
-    setCameraReady(false)
   }
 
   const loadDetector = useCallback(async () => {
@@ -892,7 +886,6 @@ export default function ElevateMovementScreenPage() {
       setRecordedUrl(null)
       setCameraOverlayOpen(false)
       stopCamera()
-      setCameraReady(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
     } catch {}
     setCapturedReps([])
@@ -1462,7 +1455,6 @@ export default function ElevateMovementScreenPage() {
                     onClick={async () => {
                       setCameraOverlayOpen(false)
                       stopCamera()
-                      setCameraReady(false)
                       if (videoRef.current && recordedUrl) {
                         try { (videoRef.current as any).srcObject = null } catch {}
                         videoRef.current.src = recordedUrl
