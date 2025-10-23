@@ -45,11 +45,33 @@ export async function analyzePatternWithFrames(
       const status = normalizeStatus(k?.status);
       return { name, value, target, status };
     });
+    let reps: MovementResult["reps"] = undefined;
+    if (Array.isArray(raw?.reps)) {
+      const rawReps = raw.reps as any[]
+      const repItems = rawReps
+        .slice(0, 10)
+        .map((rep: any, idx: number) => {
+          const repIndexRaw = Number(rep?.rep_index ?? rep?.rep ?? idx + 1);
+          const rep_index = Number.isFinite(repIndexRaw) && repIndexRaw >= 1 ? Math.trunc(repIndexRaw) : idx + 1;
+          const status = normalizeStatus(rep?.status);
+          const key_findings = String(rep?.key_findings ?? rep?.summary ?? "").trim();
+          const focus_next_rep = String(rep?.focus_next_rep ?? rep?.focus ?? "").trim();
+          if (!key_findings) return null;
+          return { rep_index, status, key_findings, focus_next_rep };
+        })
+        .filter(Boolean) as MovementResult["reps"];
+      if (repItems && repItems.length > 0) {
+        reps = repItems.map((rep) => ({
+          ...rep,
+          focus_next_rep: rep.focus_next_rep || "",
+        }));
+      }
+    }
     const passFailRaw = String(raw?.pass_fail ?? "");
     const pass_fail: "pass" | "fail" = passFailRaw === "pass" || passFailRaw === "fail"
       ? passFailRaw
       : (kpis.some((k) => k.status === "fail") ? "fail" : "pass");
-    return { pattern: pattFinal, pass_fail, kpis };
+    return { pattern: pattFinal, pass_fail, kpis, ...(reps ? { reps } : {}) };
   };
 
   const run = async () => {
@@ -67,7 +89,8 @@ export async function analyzePatternWithFrames(
               { type: "text", text:
                 `Pattern: ${pattern}.
                  Output 4 KPIs that best indicate technique quality for this pattern.
-                 Definitions:\n- pass_fail: "pass" when joint positions/angles and control meet safe norms across most frames; "fail" if consistent red flags.\n- kpis: name, numeric value (estimate), human-readable target (e.g., "Knee valgus ≤ 5°"), status ok/warn/fail.
+                 Also summarize each rep (up to 10) in an array "reps" with objects { rep_index, status, key_findings, focus_next_rep }.
+                 Definitions:\n- pass_fail: "pass" when joint positions/angles and control meet safe norms across most frames; "fail" if consistent red flags.\n- kpis: name, numeric value (estimate), human-readable target (e.g., "Knee valgus ≤ 5°"), status ok/warn/fail.\n- reps: status ok/warn/fail per rep, key_findings summarizing what stood out, focus_next_rep suggesting what to adjust next rep (may be empty).
                  Consider temporal consistency across frames (not single-frame anomalies).`
               },
               ...imgs,

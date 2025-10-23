@@ -31,7 +31,7 @@ const handler: Handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body || '{}') as any
-    const { clientId, pattern, featurePayload, analysis, storageKey, clipDuration } = body
+    const { clientId, pattern, featurePayload, analysis, coachAnalysis, cameraView, storageKey, clipDuration } = body
 
     if (!clientId || typeof clientId !== 'string') {
       return { statusCode: 400, body: JSON.stringify({ error: 'clientId required' }), headers: CORS_HEADERS }
@@ -46,14 +46,48 @@ const handler: Handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'analysis result required' }), headers: CORS_HEADERS }
     }
 
+    const analysisPassCount = Array.isArray(analysis?.kpis)
+      ? (analysis.kpis as any[]).filter((k) => !!k.pass).length
+      : 0
+    const overallPass = typeof coachAnalysis?.overall_pass === 'boolean'
+      ? coachAnalysis.overall_pass
+      : analysisPassCount >= 3
+
+    const detectedVariation = coachAnalysis?.detected_variation
+      ?? analysis?.coach_variation_override
+      ?? analysis?.detected_variation
+      ?? null
+    const detectedVariationOriginal = coachAnalysis?.detected_variation_original
+      ?? analysis?.detected_variation_original
+      ?? null
+    const coachVariationOverride = coachAnalysis?.coach_variation_override
+      ?? analysis?.coach_variation_override
+      ?? null
+
+    const repInsights = (analysis?.rep_insights && Array.isArray(analysis.rep_insights))
+      ? analysis.rep_insights
+      : undefined
+    const repSummary = analysis?.rep_summary ?? undefined
+
     const { data: screenData, error: screenError } = await supabaseAdmin
       .from('movement_screen')
       .insert({
         client_id: clientId,
         pattern,
+        detected_variation: detectedVariation,
+        detected_variation_original: detectedVariationOriginal,
+        coach_variation_override: coachVariationOverride,
+        camera_view: cameraView ?? null,
         overall_score_0_3: analysis.overall_score_0_3 ?? 0,
+        overall_pass: overallPass,
         priority_order: analysis.priority_order ?? [],
+        priority_json: coachAnalysis?.priority_order ?? analysis.priority_order ?? [],
         gemini_json: analysis,
+        model_json: coachAnalysis ?? null,
+        storage_path: storageKey ?? null,
+        clip_duration_s: typeof clipDuration === 'number' ? Math.round(clipDuration) : null,
+        rep_summary_json: repSummary ?? null,
+        rep_insights_json: repInsights ?? null,
       })
       .select('id')
       .single()
@@ -65,16 +99,18 @@ const handler: Handler = async (event) => {
 
     const screenId = screenData.id
 
-    const kpiRows = (analysis.kpis as any[]).map((kpi) => ({
+    const kpiRows = (analysis.kpis as any[]).map((kpi, idx) => ({
       screen_id: screenId,
       client_id: clientId,
       key: kpi.key,
+      kpi_name: (coachAnalysis?.kpis?.[idx]?.name) ?? null,
       pass: !!kpi.pass,
       pass_original: typeof kpi.pass_original === 'boolean' ? kpi.pass_original : !!kpi.pass,
       pass_override: typeof kpi.pass_override === 'boolean' ? kpi.pass_override : null,
       score_0_3: kpi.score_0_3 ?? 0,
       why: kpi.why ?? '',
       cues: kpi.cues ?? [],
+      frame_refs: (coachAnalysis?.kpis?.[idx]?.frame_refs) ? JSON.stringify(coachAnalysis.kpis[idx].frame_refs) : null,
       regression: kpi.regression ?? null,
       progression: kpi.progression ?? null,
       confidence: kpi.confidence ?? 0,

@@ -23,11 +23,12 @@ VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 GEMINI_API_KEY=
+SUPABASE_BUCKET=movement-clips
 ```
 
 `SUPABASE_SERVICE_ROLE_KEY` is required by Netlify functions for privileged reads/writes. `GEMINI_API_KEY` powers `/api/gemini/interpret`.
 
-Add both to Netlify site environment variables (Build & Deploy → Environment) so `gemini-interpret` and `movement-screen-save` can run in production.
+Add both to Netlify site environment variables (Build & Deploy → Environment) so `gemini-interpret`, `screen-analyze`, and `movement-screen-save` can run in production. Ensure `SUPABASE_BUCKET` is set (defaults to `movement-clips`).
 
 ## Database Migration
 
@@ -38,6 +39,7 @@ Add both to Netlify site environment variables (Build & Deploy → Environment) 
 - `netlify/functions/gemini-interpret.ts` — stub for Gemini 1.5 Flash analysis. Validates payload and awaits integration with FeaturePayload.
 - `netlify/functions/elevation-fuse.ts` — stub for combining consult + screen data into Elevation Map snapshots.
 - `netlify/functions/movement-screen-save.ts` — persists screen sessions, KPI logs, and raw features before triggering Elevation Map refresh.
+- `netlify/functions/screen-analyze.ts` — multipart upload → ffmpeg 4 fps (≤20 frames) → OpenAI GPT‑4o strict JSON schema (variation + 4 KPIs + briefing) → uploads original clip to Supabase Storage (`movement-clips`) and returns storage path, frame count, duration estimate, and validated analysis JSON.
 
 ## Next Steps
 

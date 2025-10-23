@@ -4,6 +4,10 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Layout from '@/components/Layout'
 import RequireTrainer from '@/components/RequireTrainer'
 import { supabase } from '@/lib/supabase'
+import VariationBadge, { type LoadReadiness } from '@/components/VariationBadge'
+import KpiCards from '@/components/KpiCards'
+import CoachBriefing from '../components/CoachBriefing'
+import { buildCues, buildWhyFromScore, statusFromScore, buildPositive } from '@/lib/kpiText'
 
 const patternCopy: Record<string, { title: string; blurb: string }> = {
   squat: {
@@ -26,6 +30,282 @@ const patternCopy: Record<string, { title: string; blurb: string }> = {
     title: 'Pull Pattern Screen',
     blurb: 'Evaluate seated underhand row—torso stillness, scap timing, elbow path, and grip control. Front view preferred.'
   }
+};
+
+const VARIATION_OPTIONS: Record<string, string[]> = {
+  squat: [
+    'Bodyweight Squat',
+    'Goblet Squat',
+    'Front Squat',
+    'Back Squat (High Bar)',
+    'Back Squat (Low Bar)',
+    'Safety Bar Squat (SSB)',
+    'Overhead Squat',
+  ],
+}
+
+const MOCK_REP_SCRIPTS: Array<{ label: string; reps: Omit<RepMetrics, 'rep'>[] }> = [
+  {
+    label: 'Clean high-bar set',
+    reps: Array.from({ length: 4 }).map(() => ({
+      tempo_ecc_s: 1.6,
+      tempo_con_s: 1.2,
+      rom_ok: true,
+      depth_deg: 94,
+      knee_valgus_deg: 5,
+      trunk_flex_deg: 28,
+      hip_flex_deg: 105,
+      knee_flex_deg: 98,
+      hinge_ratio: 1.05,
+      lumbar_var_deg: 3,
+      torso_line_r2: 0.97,
+      scap_set_flag: true,
+      torso_sway_deg: 4,
+      scap_timing_ok: true,
+      elbow_path_deg: 36,
+      wrist_dev_deg: 5,
+      heels_down: true,
+    })),
+  },
+  {
+    label: 'Depth/valgus issues',
+    reps: [
+      {
+        tempo_ecc_s: 1.7,
+        tempo_con_s: 1.4,
+        rom_ok: false,
+        depth_deg: 82,
+        knee_valgus_deg: 9,
+        trunk_flex_deg: 33,
+        hip_flex_deg: 95,
+        knee_flex_deg: 88,
+        hinge_ratio: 1.12,
+        lumbar_var_deg: 5,
+        torso_line_r2: 0.91,
+        scap_set_flag: true,
+        torso_sway_deg: 6,
+        scap_timing_ok: true,
+        elbow_path_deg: 40,
+        wrist_dev_deg: 8,
+        heels_down: false,
+      },
+      {
+        tempo_ecc_s: 1.8,
+        tempo_con_s: 1.5,
+        rom_ok: false,
+        depth_deg: 78,
+        knee_valgus_deg: 11,
+        trunk_flex_deg: 36,
+        hip_flex_deg: 92,
+        knee_flex_deg: 86,
+        hinge_ratio: 1.15,
+        lumbar_var_deg: 6,
+        torso_line_r2: 0.9,
+        scap_set_flag: false,
+        torso_sway_deg: 7,
+        scap_timing_ok: true,
+        elbow_path_deg: 42,
+        wrist_dev_deg: 9,
+        heels_down: false,
+      },
+      {
+        tempo_ecc_s: 1.7,
+        tempo_con_s: 1.3,
+        rom_ok: true,
+        depth_deg: 88,
+        knee_valgus_deg: 7,
+        trunk_flex_deg: 31,
+        hip_flex_deg: 100,
+        knee_flex_deg: 92,
+        hinge_ratio: 1.1,
+        lumbar_var_deg: 4,
+        torso_line_r2: 0.92,
+        scap_set_flag: true,
+        torso_sway_deg: 5,
+        scap_timing_ok: true,
+        elbow_path_deg: 39,
+        wrist_dev_deg: 7,
+        heels_down: true,
+      },
+      {
+        tempo_ecc_s: 1.9,
+        tempo_con_s: 1.6,
+        rom_ok: false,
+        depth_deg: 80,
+        knee_valgus_deg: 10,
+        trunk_flex_deg: 35,
+        hip_flex_deg: 94,
+        knee_flex_deg: 87,
+        hinge_ratio: 1.13,
+        lumbar_var_deg: 7,
+        torso_line_r2: 0.89,
+        scap_set_flag: false,
+        torso_sway_deg: 8,
+        scap_timing_ok: false,
+        elbow_path_deg: 44,
+        wrist_dev_deg: 10,
+        heels_down: false,
+      },
+    ],
+  },
+  {
+    label: 'Tempo and trunk variance',
+    reps: [
+      {
+        tempo_ecc_s: 1.3,
+        tempo_con_s: 1.0,
+        rom_ok: true,
+        depth_deg: 96,
+        knee_valgus_deg: 6,
+        trunk_flex_deg: 32,
+        hip_flex_deg: 108,
+        knee_flex_deg: 101,
+        hinge_ratio: 1.03,
+        lumbar_var_deg: 4,
+        torso_line_r2: 0.95,
+        scap_set_flag: true,
+        torso_sway_deg: 4,
+        scap_timing_ok: true,
+        elbow_path_deg: 37,
+        wrist_dev_deg: 6,
+        heels_down: true,
+      },
+      {
+        tempo_ecc_s: 2.4,
+        tempo_con_s: 1.9,
+        rom_ok: false,
+        depth_deg: 86,
+        knee_valgus_deg: 8,
+        trunk_flex_deg: 38,
+        hip_flex_deg: 96,
+        knee_flex_deg: 90,
+        hinge_ratio: 1.18,
+        lumbar_var_deg: 6,
+        torso_line_r2: 0.88,
+        scap_set_flag: false,
+        torso_sway_deg: 9,
+        scap_timing_ok: false,
+        elbow_path_deg: 43,
+        wrist_dev_deg: 11,
+        heels_down: false,
+      },
+      {
+        tempo_ecc_s: 1.5,
+        tempo_con_s: 1.1,
+        rom_ok: true,
+        depth_deg: 92,
+        knee_valgus_deg: 6,
+        trunk_flex_deg: 30,
+        hip_flex_deg: 103,
+        knee_flex_deg: 96,
+        hinge_ratio: 1.08,
+        lumbar_var_deg: 5,
+        torso_line_r2: 0.9,
+        scap_set_flag: true,
+        torso_sway_deg: 6,
+        scap_timing_ok: true,
+        elbow_path_deg: 41,
+        wrist_dev_deg: 8,
+        heels_down: true,
+      },
+      {
+        tempo_ecc_s: 1.2,
+        tempo_con_s: 1.0,
+        rom_ok: true,
+        depth_deg: 98,
+        knee_valgus_deg: 4,
+        trunk_flex_deg: 27,
+        hip_flex_deg: 110,
+        knee_flex_deg: 102,
+        hinge_ratio: 1.02,
+        lumbar_var_deg: 3,
+        torso_line_r2: 0.96,
+        scap_set_flag: true,
+        torso_sway_deg: 4,
+        scap_timing_ok: true,
+        elbow_path_deg: 35,
+        wrist_dev_deg: 5,
+        heels_down: true,
+      },
+    ],
+  },
+]
+
+const CAPTURE_GUIDES: Record<string, {
+  recommend: 'front' | 'front45' | 'side'
+  angles: { value: 'front' | 'front45' | 'side'; label: string; benefit: string }[]
+  steps: string[]
+}> = {
+  squat: {
+    recommend: 'side',
+    angles: [
+      { value: 'side', label: 'Side (recommended)', benefit: 'Best for depth, torso angle, hip/knee sequencing.' },
+      { value: 'front45', label: 'Front 45°', benefit: 'Good for knee tracking/valgus and overall control.' },
+      { value: 'front', label: 'Front', benefit: 'Quick check for symmetry and foot pressure.' }
+    ],
+    steps: [
+      'Place camera at chest height, landscape orientation.',
+      'Center full body with feet visible at all times.',
+      'Capture 6–10 continuous reps at natural tempo.',
+      'Avoid occlusion: no spotters crossing; good lighting.'
+    ]
+  },
+  hinge: {
+    recommend: 'side',
+    angles: [
+      { value: 'side', label: 'Side (recommended)', benefit: 'Best for hip hinge pattern, bar/implement path, lumbar neutrality.' },
+      { value: 'front45', label: 'Front 45°', benefit: 'Views lat set, shoulder position and knee travel.' },
+      { value: 'front', label: 'Front', benefit: 'Checks stance width and symmetry.' }
+    ],
+    steps: [
+      'Camera at hip-to-chest height, landscape.',
+      'Frame head-to-toe with implement fully visible.',
+      'Record 6–10 reps without pausing or walking away.',
+      'Ensure neutral background and steady lighting.'
+    ]
+  },
+  lunge: {
+    recommend: 'front',
+    angles: [
+      { value: 'front', label: 'Front (recommended)', benefit: 'Best for knee-over-toe tracking and frontal plane control.' },
+      { value: 'side', label: 'Side', benefit: 'Good for depth, shin angle and step length.' },
+      { value: 'front45', label: 'Front 45°', benefit: 'Balanced view across tracking and depth.' }
+    ],
+    steps: [
+      'Camera at knee-to-hip height, landscape.',
+      'Keep lead and trail foot fully in frame throughout.',
+      'Record 6–10 reps per side without assistance crossing the view.',
+      'Use consistent lighting; avoid mirrors reflecting glare.'
+    ]
+  },
+  push: {
+    recommend: 'side',
+    angles: [
+      { value: 'side', label: 'Side (recommended)', benefit: 'Best for trunk line, ROM, and elbow angle consistency.' },
+      { value: 'front45', label: 'Front 45°', benefit: 'Good for scap rhythm and elbow flare.' },
+      { value: 'front', label: 'Front', benefit: 'Quick check on symmetry and grip spacing.' }
+    ],
+    steps: [
+      'Camera at chest height, landscape.',
+      'Frame torso and arms fully through end ranges.',
+      'Capture 6–10 reps at steady tempo; no pauses between.',
+      'Stable lighting; avoid harsh backlight and occlusions.'
+    ]
+  },
+  pull: {
+    recommend: 'front45',
+    angles: [
+      { value: 'front45', label: 'Front 45° (recommended)', benefit: 'Best for elbow path, scapular rhythm and finish position.' },
+      { value: 'side', label: 'Side', benefit: 'Shows trunk control and range of motion end points.' },
+      { value: 'front', label: 'Front', benefit: 'Checks symmetry and wrist position.' }
+    ],
+    steps: [
+      'Camera at chest height, landscape.',
+      'Include torso, arms, and handle throughout the set.',
+      'Record 6–10 smooth reps; avoid jerking or bouncing.',
+      'Ensure no people cross between camera and athlete.'
+    ]
+  },
 }
 
 type Pattern = 'Squat' | 'Lunge' | 'Hinge' | 'Push' | 'Pull'
@@ -66,6 +346,97 @@ interface FeaturePayload {
   thumbnails?: string[]
 }
 
+type RepStatus = 'ok' | 'warn' | 'fail'
+
+interface RepInsight {
+  rep_index: number
+  status: RepStatus
+  key_findings: string
+  focus_next_rep?: string
+}
+
+interface RepSummarySegment {
+  segment: 'early' | 'middle' | 'late'
+  dominant_status: RepStatus
+  summary: string
+}
+
+interface RepSummary {
+  overall: string
+  segments: RepSummarySegment[]
+}
+
+const REP_STATUS_PRIORITY: Record<RepStatus, number> = { ok: 2, warn: 1, fail: 0 }
+const REP_STATUS_LABELS: Record<RepStatus, string> = {
+  ok: 'On target',
+  warn: 'Needs attention',
+  fail: 'Flagged',
+}
+const REP_STATUS_BADGE: Record<RepStatus, string> = {
+  ok: 'bg-emerald-100 text-emerald-700',
+  warn: 'bg-amber-100 text-amber-700',
+  fail: 'bg-rose-100 text-rose-700',
+}
+
+type RawRep = { rep_index?: number; rep?: number; status?: string; key_findings?: string; focus_next_rep?: string }
+
+const mapRawRepsToInsights = (reps: RawRep[] | undefined): RepInsight[] | undefined => {
+  if (!reps || reps.length === 0) return undefined
+  const results = reps.reduce<RepInsight[]>((acc, rep, idx) => {
+    const repIndexRaw = typeof rep.rep_index === 'number' && Number.isFinite(rep.rep_index)
+      ? rep.rep_index
+      : typeof rep.rep === 'number' && Number.isFinite(rep.rep)
+        ? rep.rep
+        : undefined
+    const rep_index = repIndexRaw && repIndexRaw >= 1 ? Math.trunc(repIndexRaw) : idx + 1
+    const rawStatus = typeof rep.status === 'string' ? rep.status.toLowerCase() : 'ok'
+    const status: RepStatus = rawStatus === 'fail' || rawStatus === 'warn' ? (rawStatus as RepStatus) : 'ok'
+    const key_findings = (rep.key_findings ?? '').trim()
+    if (!key_findings) return acc
+    const focus_next_rep = (rep.focus_next_rep ?? '').trim()
+    acc.push({
+      rep_index,
+      status,
+      key_findings,
+      focus_next_rep: focus_next_rep || undefined,
+    })
+    return acc
+  }, [])
+  return results.length > 0 ? results : undefined
+}
+
+const summarizeRepInsights = (insights?: RepInsight[]): RepSummary | undefined => {
+  if (!insights || insights.length === 0) return undefined
+  const segmentSize = Math.max(1, Math.floor(insights.length / 3))
+  const segmentKeys: Array<'early' | 'middle' | 'late'> = ['early', 'middle', 'late']
+  const segments: RepSummarySegment[] = segmentKeys.map((segment, idx) => {
+    const start = idx * segmentSize
+    const end = idx === 2 ? insights.length : Math.min(insights.length, start + segmentSize)
+    const slice = start < insights.length ? insights.slice(start, Math.max(start + 1, end)) : []
+    if (slice.length === 0) {
+      return { segment, dominant_status: 'ok', summary: 'No reps captured in this portion of the set.' }
+    }
+    const counts: Record<RepStatus, number> = { ok: 0, warn: 0, fail: 0 }
+    slice.forEach((rep) => { counts[rep.status] += 1 })
+    const dominant = (Object.keys(counts) as RepStatus[])
+      .sort((a, b) => counts[b] - counts[a] || REP_STATUS_PRIORITY[b] - REP_STATUS_PRIORITY[a])[0]
+    const summaryText = slice
+      .map((rep) => `Rep ${rep.rep_index}: ${rep.key_findings}`)
+      .join(' | ')
+    return {
+      segment,
+      dominant_status: dominant,
+      summary: summaryText || 'No notable findings recorded.',
+    }
+  })
+
+  const overall = segments
+    .map((seg) => `${seg.segment.toUpperCase()}: ${REP_STATUS_LABELS[seg.dominant_status]}`)
+    .join(' • ')
+
+  return { overall, segments }
+}
+
 interface KpiResult {
   key: string
   pass: boolean
@@ -77,6 +448,7 @@ interface KpiResult {
   confidence: number
   pass_original?: boolean
   pass_override?: boolean | null
+  overrideActive?: boolean
 }
 
 interface MovementAnalysisResponse {
@@ -85,6 +457,51 @@ interface MovementAnalysisResponse {
   overall_score_0_3: 0 | 1 | 2 | 3
   priority_order: string[]
   global_notes?: string
+  detected_variation?: string
+  detected_variation_original?: string
+  coach_variation_override?: string
+  load_readiness: LoadReadiness
+  rep_insights?: RepInsight[]
+  rep_summary?: RepSummary
+  briefing?: CoachBriefingData
+}
+
+interface CoachAnalysisKpi {
+  key: string
+  name: string
+  score_0_3: 0|1|2|3
+  pass: boolean
+  why: string
+  frame_refs?: number[]
+  cues?: string[]
+  regression?: string | null
+  progression?: string | null
+}
+
+interface CoachBriefingData {
+  load_readiness?: LoadReadiness
+  strengths: string[]
+  improvements: string[]
+  consequences_positive: string
+  consequences_negative: string
+  action_plan: { focus_this_week: string; drills: string[]; loading_guidance?: string }
+}
+
+interface CoachAnalysis {
+  pattern: string
+  detected_variation: string
+  detected_variation_original?: string
+  coach_variation_override?: string
+  subject: { selection_method: string; confidence_0_1: number; notes?: string }
+  camera_limits?: string[]
+  overall_score_0_3: 0|1|2|3
+  overall_pass: boolean
+  load_readiness: LoadReadiness
+  global_notes?: string
+  kpis: CoachAnalysisKpi[]
+  priority_order: string[]
+  briefing: CoachBriefingData
+  reps?: RawRep[]
 }
 
 export default function ElevateMovementScreenPage() {
@@ -94,6 +511,7 @@ export default function ElevateMovementScreenPage() {
   const clientId = search.get('clientId')
   const patternKey = params.pattern ?? 'squat'
   const pattern = patternCopy[patternKey] ?? patternCopy.squat
+  const variationOptions = useMemo(() => VARIATION_OPTIONS[patternKey] ?? [], [patternKey])
   const [isRecording, setIsRecording] = useState(false)
   const [capturedReps, setCapturedReps] = useState<RepMetrics[]>([])
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -103,6 +521,7 @@ export default function ElevateMovementScreenPage() {
   const [isRequestingCamera, setIsRequestingCamera] = useState(false)
   const [payload, setPayload] = useState<FeaturePayload | null>(null)
   const [analysisResponse, setAnalysisResponse] = useState<MovementAnalysisResponse | null>(null)
+  const [coachAnalysis, setCoachAnalysis] = useState<CoachAnalysis | null>(null)
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [saveLoading, setSaveLoading] = useState(false)
@@ -110,8 +529,16 @@ export default function ElevateMovementScreenPage() {
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null)
   const [kpiOverrides, setKpiOverrides] = useState<Record<string, boolean>>({})
   const [kpiOriginals, setKpiOriginals] = useState<Record<string, boolean>>({})
+  const [kpiOverrideActive, setKpiOverrideActive] = useState<Record<string, boolean>>({})
+  const [repInsights, setRepInsights] = useState<RepInsight[] | undefined>(undefined)
+  const [repSummary, setRepSummary] = useState<RepSummary | undefined>(undefined)
   const [countdown, setCountdown] = useState<number | null>(null)
   const [cameraOverlayOpen, setCameraOverlayOpen] = useState(false)
+  const [cameraView, setCameraView] = useState<'front'|'front45'|'side'>('front')
+  const [showCaptureGuide, setShowCaptureGuide] = useState(false)
+  const [guideAngle, setGuideAngle] = useState<'front'|'front45'|'side'>('front')
+  const [variationOverride, setVariationOverride] = useState<string>('')
+  const [overrideActive, setOverrideActive] = useState<boolean>(false)
   const overlayVideoRef = useRef<HTMLVideoElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -153,26 +580,63 @@ export default function ElevateMovementScreenPage() {
   const [poseError, setPoseError] = useState<string | null>(null)
   const [clientName, setClientName] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (showCaptureGuide) {
+      const g = CAPTURE_GUIDES[patternKey]
+      setGuideAngle(g?.recommend ?? 'front')
+    }
+  }, [showCaptureGuide, patternKey])
+
   const header = useMemo(() => {
     const base = pattern.title
     const suffix = clientName ?? (clientId ? `Client ${clientId}` : null)
     return suffix ? `${base} • ${suffix}` : base
   }, [pattern.title, clientName, clientId])
 
-  const KPI_DESCRIPTIONS: Record<string, string> = {
-    depth: 'Depth achieved relative to target range; sufficient ROM maintained.',
-    knee_valgus: 'Knee tracking over the foot; minimize inward collapse (valgus).',
-    trunk_flex: 'Torso inclination and bracing; maintain a neutral, controlled spine.',
-    tempo: 'Eccentric and concentric pacing; smooth control across phases.',
-    hinge_ratio: 'Hip vs knee flexion balance indicating a proper hinge pattern.',
-    heels_down: 'Foot stability and heel contact maintained through the rep.',
-    scap_timing_ok: 'Scapular setting and timing relative to torso/arm motion.',
-    torso_sway_deg: 'Side-to-side sway indicating stability and control.',
-    elbow_path_deg: 'Elbow travel path relative to the intended groove.',
-    wrist_dev_deg: 'Wrist deviation and neutral grip control under load.',
-    knee_flex_deg: 'Knee flexion angle quality and consistency.',
-    hip_flex_deg: 'Hip flexion angle quality and consistency.',
-  }
+  const variationCard = useMemo(() => {
+    if (coachAnalysis) {
+      const finalVariation = coachAnalysis.coach_variation_override ?? coachAnalysis.detected_variation
+      return {
+        variation: finalVariation,
+        variationOriginal: coachAnalysis.detected_variation_original ?? coachAnalysis.detected_variation,
+        coachOverride: coachAnalysis.coach_variation_override ?? undefined,
+        confidence: coachAnalysis.subject?.confidence_0_1,
+        cameraLimits: coachAnalysis.camera_limits,
+        overallPass: coachAnalysis.overall_pass,
+        readiness: coachAnalysis.load_readiness,
+      }
+    }
+    if (analysisResponse) {
+      const passCount = analysisResponse.kpis.filter((kpi) => !!kpi.pass).length
+      const overallPass = passCount >= 3
+      const finalVariation = analysisResponse.coach_variation_override ?? analysisResponse.detected_variation ?? pattern.title
+      return {
+        variation: finalVariation,
+        variationOriginal: analysisResponse.detected_variation_original ?? analysisResponse.detected_variation ?? pattern.title,
+        coachOverride: analysisResponse.coach_variation_override ?? undefined,
+        confidence: undefined,
+        cameraLimits: undefined,
+        overallPass,
+        readiness: analysisResponse.load_readiness,
+      }
+    }
+    return null
+  }, [coachAnalysis, analysisResponse, pattern.title])
+
+  useEffect(() => {
+    const latest = coachAnalysis
+      ? (coachAnalysis.coach_variation_override ?? coachAnalysis.detected_variation)
+      : analysisResponse
+        ? (analysisResponse.coach_variation_override ?? analysisResponse.detected_variation)
+        : ''
+    if (latest) {
+      if (latest !== variationOverride) {
+        setVariationOverride(latest)
+      }
+    } else if (variationOverride !== '') {
+      setVariationOverride('')
+    }
+  }, [coachAnalysis, analysisResponse, variationOverride])
 
   useEffect(() => {
     if (!clientId) {
@@ -323,12 +787,12 @@ export default function ElevateMovementScreenPage() {
   }
 
   const computeFeaturePayload = useCallback((reps: RepMetrics[]): FeaturePayload | null => {
-    if (!clientId) return null
+    const payloadClientId = clientId ?? 'mock-client'
     const avgDepth = average(reps.map((rep) => rep.depth_deg ?? 0))
     const avgKneeValgus = average(reps.map((rep) => rep.knee_valgus_deg ?? 0))
     return {
       pattern: (patternKey.toUpperCase().charAt(0) + patternKey.slice(1)) as Pattern,
-      clientId,
+      clientId: payloadClientId,
       fps: 30,
       camera_view: 'front',
       reps,
@@ -348,41 +812,105 @@ export default function ElevateMovementScreenPage() {
   }, [clientId, patternKey])
 
   const buildMockPayload = useCallback((): FeaturePayload | null => {
-    if (!clientId) return null
     const reps = capturedReps.length
       ? capturedReps
-      : [
-          {
-            rep: 1,
-            tempo_ecc_s: 1.6,
-            tempo_con_s: 1.3,
-            rom_ok: true,
-            depth_deg: 92,
-            knee_valgus_deg: 6,
-            trunk_flex_deg: 28,
-            hip_flex_deg: 102,
-            knee_flex_deg: 95,
-            hinge_ratio: 1.07,
-            lumbar_var_deg: 3,
-            torso_line_r2: 0.96,
-            scap_set_flag: true,
-            torso_sway_deg: 4,
-            scap_timing_ok: true,
-            elbow_path_deg: 38,
-            wrist_dev_deg: 6,
-            heels_down: true
-          }
-        ]
+      : (() => {
+          const script = MOCK_REP_SCRIPTS[Math.floor(Math.random() * MOCK_REP_SCRIPTS.length)] ?? MOCK_REP_SCRIPTS[0]
+          return script.reps.map((rep, idx) => ({ ...rep, rep: idx + 1 }))
+        })()
     const assembled = computeFeaturePayload(reps)
     if (!assembled) return null
+    const runKey = `run_${Math.floor(Math.random() * 1_000_000_000)}`
     return {
       ...assembled,
       flags: {
         ...assembled.flags,
-        sample: true
+        sample: true,
+        [runKey]: true,
       }
     }
   }, [capturedReps, clientId, computeFeaturePayload])
+
+  const addMockRep = useCallback(() => {
+    setCapturedReps((prev) => {
+      if (prev.length >= 10) return prev
+      const last = prev[prev.length - 1] ?? {
+        rep: 0,
+        tempo_ecc_s: 1.6,
+        tempo_con_s: 1.3,
+        rom_ok: true,
+        depth_deg: 92,
+        knee_valgus_deg: 6,
+        trunk_flex_deg: 28,
+        hip_flex_deg: 102,
+        knee_flex_deg: 95,
+        hinge_ratio: 1.07,
+        lumbar_var_deg: 3,
+        torso_line_r2: 0.96,
+        scap_set_flag: true,
+        torso_sway_deg: 4,
+        scap_timing_ok: true,
+        elbow_path_deg: 38,
+        wrist_dev_deg: 6,
+        heels_down: true,
+      }
+      const jitter = (n: number, amt: number) => Math.round((n + (Math.random() * 2 - 1) * amt) * 10) / 10
+      const next = {
+        ...last,
+        rep: (last.rep ?? prev.length) + 1,
+        tempo_ecc_s: jitter(last.tempo_ecc_s ?? 1.6, 0.2),
+        tempo_con_s: jitter(last.tempo_con_s ?? 1.3, 0.2),
+        depth_deg: jitter(last.depth_deg ?? 92, 4),
+        knee_valgus_deg: jitter(last.knee_valgus_deg ?? 6, 2),
+        trunk_flex_deg: jitter(last.trunk_flex_deg ?? 28, 3),
+        hip_flex_deg: jitter(last.hip_flex_deg ?? 102, 4),
+        knee_flex_deg: jitter(last.knee_flex_deg ?? 95, 4),
+        hinge_ratio: jitter(last.hinge_ratio ?? 1.07, 0.05),
+        lumbar_var_deg: jitter(last.lumbar_var_deg ?? 3, 1),
+        torso_line_r2: Math.max(0.9, Math.min(0.99, (last.torso_line_r2 ?? 0.96) + (Math.random() * 0.02 - 0.01))),
+        scap_set_flag: true,
+        torso_sway_deg: jitter(last.torso_sway_deg ?? 4, 1.5),
+        scap_timing_ok: true,
+        elbow_path_deg: jitter(last.elbow_path_deg ?? 38, 3),
+        wrist_dev_deg: jitter(last.wrist_dev_deg ?? 6, 2),
+        heels_down: true,
+      }
+      return [...prev, next]
+    })
+  }, [])
+
+  const handleRetake = useCallback(() => {
+    try {
+      if (videoRef.current) {
+        try { (videoRef.current as any).srcObject = null } catch {}
+        try { videoRef.current.pause() } catch {}
+        try { (videoRef.current as HTMLVideoElement).removeAttribute('src') } catch {}
+      }
+      if (recordedUrl) {
+        try { URL.revokeObjectURL(recordedUrl) } catch {}
+      }
+      setRecordedUrl(null)
+      setCameraOverlayOpen(false)
+      stopCamera()
+      setCameraReady(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    } catch {}
+    setCapturedReps([])
+    setPayload(null)
+    setAnalysisResponse(null)
+    setCoachAnalysis(null)
+    setRepInsights(undefined)
+    setRepSummary(undefined)
+    setKpiOverrides({})
+    setKpiOriginals({})
+    setKpiOverrideActive({})
+    setVariationOverride('')
+    setOverrideActive(false)
+    setUploadMeta(null)
+    setAnalysisError(null)
+    setSaveError(null)
+    setSaveSuccess(null)
+  }, [recordedUrl])
 
   const captureCurrentFrame = useCallback(() => {
     const video = videoRef.current
@@ -523,7 +1051,12 @@ export default function ElevateMovementScreenPage() {
       if (videoRef.current) {
         try { (videoRef.current as any).srcObject = null } catch {}
         videoRef.current.src = url
-        videoRef.current.loop = true
+        try { videoRef.current.currentTime = 0 } catch {}
+        await new Promise<void>((resolve) => {
+          const onLoaded = () => resolve()
+          videoRef.current?.addEventListener('loadedmetadata', onLoaded, { once: true })
+        })
+        videoRef.current.loop = false
         videoRef.current.controls = true
         await videoRef.current.play().catch(() => undefined)
       }
@@ -532,6 +1065,7 @@ export default function ElevateMovementScreenPage() {
       // Close any overlay camera if open
       setCameraOverlayOpen(false)
       stopCamera()
+      setCameraReady(false)
       // Reset file input value so user can retake
       if (fileInputRef.current) fileInputRef.current.value = ''
     } catch (err) {
@@ -670,14 +1204,21 @@ export default function ElevateMovementScreenPage() {
 
   const [uploadMeta, setUploadMeta] = useState<{ storageKey: string; clip_duration_s_est?: number } | null>(null)
 
-  const runAnalysis = useCallback(async () => {
+  const runAnalysis = useCallback(async (opts?: { override?: string | null; reuseUpload?: boolean }) => {
     setAnalysisError(null)
-    setAnalysisResponse(null)
+    if (analysisResponse) {
+      setAnalysisResponse(null)
+    }
     setSaveSuccess(null)
     setKpiOverrides({})
     setKpiOriginals({})
-    setUploadMeta(null)
-    const built = payload ?? buildMockPayload()
+    setKpiOverrideActive({})
+    setRepInsights(undefined)
+    setRepSummary(undefined)
+    if (!opts?.reuseUpload) {
+      setUploadMeta(null)
+    }
+    const built = buildMockPayload()
     if (!built) {
       setAnalysisError('Capture at least one rep and ensure clientId is present before analyzing.')
       return
@@ -691,26 +1232,74 @@ export default function ElevateMovementScreenPage() {
         const fileName = (recordedBlobRef.current.type.includes('mp4') ? 'screen.mp4' : 'screen.webm')
         fd.append('video', recordedBlobRef.current, fileName)
         fd.append('clientId', clientId)
-        fd.append('pattern', patternKey)
-        fd.append('camera_view', 'front')
-        const up = await fetch('/.netlify/functions/movement-upload', { method: 'POST', body: fd })
+        fd.append('pattern', (patternKey[0]?.toUpperCase() ?? 'S') + patternKey.slice(1))
+        fd.append('camera_view', cameraView)
+        if (opts?.override) {
+          fd.append('override_variation', opts.override)
+        }
+        const up = await fetch('/.netlify/functions/screen-analyze', { method: 'POST', body: fd })
         if (!up.ok) {
           const errJson = await up.json().catch(() => ({}))
-          throw new Error(errJson?.error ?? `Upload analyze failed (${up.status})`)
+          throw new Error(errJson?.error ?? `Screen analyze failed (${up.status})`)
         }
         const uploaded = await up.json()
         if (uploaded?.analysis?.kpis?.length === 4) {
-          const analysis = uploaded.analysis as MovementAnalysisResponse
-          setAnalysisResponse(analysis)
-          setUploadMeta({ storageKey: uploaded.storageKey, clip_duration_s_est: uploaded.clip_duration_s_est })
-          const originals = Object.fromEntries(analysis.kpis.map((kpi: KpiResult) => [kpi.key, !!kpi.pass]))
+          const ca = uploaded.analysis as CoachAnalysis
+          setCoachAnalysis(ca)
+          setUploadMeta({ storageKey: uploaded.storage_path, clip_duration_s_est: uploaded.clip_duration_s_est })
+          const mapped: MovementAnalysisResponse = {
+            pattern: (ca.pattern as any) as Pattern,
+            overall_score_0_3: ca.overall_score_0_3,
+            priority_order: ca.priority_order || [],
+            global_notes: ca.global_notes,
+            detected_variation: ca.detected_variation,
+            detected_variation_original: ca.detected_variation_original,
+            coach_variation_override: ca.coach_variation_override,
+            load_readiness: ca.load_readiness,
+            kpis: ca.kpis.map((k) => ({
+              key: k.key,
+              pass: k.pass,
+              pass_original: k.pass,
+              pass_override: null,
+              score_0_3: k.score_0_3 as 0|1|2|3,
+              why: k.why,
+              cues: k.cues || [],
+              regression: k.regression || undefined,
+              progression: k.progression || undefined,
+              confidence: 0.6,
+            })) as any,
+            briefing: {
+              load_readiness: ca.load_readiness,
+              strengths: ca.briefing?.strengths ?? [],
+              improvements: ca.briefing?.improvements ?? [],
+              consequences_positive: ca.briefing?.consequences_positive ?? '',
+              consequences_negative: ca.briefing?.consequences_negative ?? '',
+              action_plan: ca.briefing?.action_plan ?? { focus_this_week: '', drills: [] },
+            },
+            rep_insights: undefined,
+            rep_summary: undefined,
+          }
+          const insights = mapRawRepsToInsights(ca.reps as any)
+          if (insights) {
+            mapped.rep_insights = insights
+            const summary = summarizeRepInsights(insights)
+            if (summary) mapped.rep_summary = summary
+          }
+          setAnalysisResponse(mapped)
+          const originals = Object.fromEntries(mapped.kpis.map((kpi: KpiResult) => [kpi.key, !!kpi.pass]))
           setKpiOriginals(originals)
           setKpiOverrides(originals)
+          setKpiOverrideActive({})
+          setRepInsights(insights)
+          setRepSummary(mapped.rep_summary ?? summarizeRepInsights(insights))
           return
         }
       }
       // Fallback: direct analyze from frames or feature payload
       const requestBody = frames.length >= 8 ? { pattern: patternKey, frames } : built
+      if (opts?.override) {
+        ;(requestBody as any).overrideVariation = opts.override
+      }
       const resp = await fetch('/.netlify/functions/movement-analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
       if (!resp.ok) {
         const errJson = await resp.json().catch(() => ({}))
@@ -722,13 +1311,16 @@ export default function ElevateMovementScreenPage() {
       if (data && Array.isArray(data.kpis) && data.kpis.length === 4) {
         const analysis = data as MovementAnalysisResponse
         setAnalysisResponse(analysis)
-        const originals = Object.fromEntries(analysis.kpis.map((kpi: KpiResult) => [kpi.key, !!kpi.pass]))
+        const originals = Object.fromEntries(analysis.kpis.map((kpi) => [kpi.key, !!kpi.pass]))
         setKpiOriginals(originals)
         setKpiOverrides(originals)
-      } else {
-        setAnalysisError('Analysis response missing KPI data. See console for payload.')
-        console.info('Analysis response:', data)
+        const insights = analysis.rep_insights ?? mapRawRepsToInsights((analysis as any).reps)
+        setRepInsights(insights)
+        setRepSummary(analysis.rep_summary ?? summarizeRepInsights(insights))
+        return
       }
+      setAnalysisError('Analysis response missing KPI data. See console for payload.')
+      console.info('Analysis response:', data)
     } catch (error: any) {
       console.error('Movement analysis error', error)
       setAnalysisError(error?.message ?? 'Failed to analyze movement')
@@ -763,7 +1355,16 @@ export default function ElevateMovementScreenPage() {
       const res = await fetch('/.netlify/functions/movement-screen-save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, pattern: payload.pattern, featurePayload: payload, analysis: mergedAnalysis, storageKey: uploadMeta?.storageKey ?? null, clipDuration: uploadMeta?.clip_duration_s_est ?? null })
+        body: JSON.stringify({
+          clientId,
+          pattern: payload.pattern,
+          featurePayload: payload,
+          analysis: mergedAnalysis,
+          coachAnalysis,
+          cameraView,
+          storageKey: uploadMeta?.storageKey ?? null,
+          clipDuration: uploadMeta?.clip_duration_s_est ?? null
+        })
       })
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}))
@@ -782,10 +1383,8 @@ export default function ElevateMovementScreenPage() {
         console.warn('Elevation fuse failed', errJson)
         setSaveError(errJson.error ?? 'Saved, but Elevation Map refresh failed. Try again later.')
       } else {
-        setSaveSuccess(applyToPlan ? 'Saved and synced to Elevation Map.' : 'Saved screen. Elevation Map refreshed.')
-        if (applyToPlan && clientId) {
-          navigate(`/elevate/map?clientId=${clientId}&tab=screen`)
-        }
+        setSaveSuccess('Saved and synced to Elevation Map.')
+        navigate(`/elevate/screen${clientId ? `?clientId=${clientId}` : ''}`)
       }
     } catch (error: any) {
       console.error('Save screen error', error)
@@ -861,26 +1460,36 @@ export default function ElevateMovementScreenPage() {
                     type="button"
                     className="rounded-md bg-[#3FAE52] text-white px-5 py-2 text-sm font-semibold"
                     onClick={async () => {
-                      // Close overlay and replay the recorded video in-page
                       setCameraOverlayOpen(false)
                       stopCamera()
+                      setCameraReady(false)
                       if (videoRef.current && recordedUrl) {
-                        try {
-                          (videoRef.current as any).srcObject = null
-                        } catch {}
+                        try { (videoRef.current as any).srcObject = null } catch {}
                         videoRef.current.src = recordedUrl
-                        videoRef.current.loop = true
+                        try { videoRef.current.currentTime = 0 } catch {}
+                        await new Promise<void>((resolve) => {
+                          const onLoaded = () => resolve()
+                          videoRef.current?.addEventListener('loadedmetadata', onLoaded, { once: true })
+                        })
+                        videoRef.current.loop = false
                         videoRef.current.controls = true
                         await videoRef.current.play().catch(() => undefined)
-                      } else {
-                        // No recorded file (unsupported MediaRecorder). Inline preview remains camera placeholder.
                       }
                     }}
                   >Use screen</button>
                   <button
                     type="button"
                     className="rounded-md border bg-white/90 backdrop-blur px-5 py-2 text-sm font-semibold"
+                    onClick={() => { void runAnalysis() }}
+                  >Analyze now</button>
+                  <button
+                    type="button"
+                    className="rounded-md border bg-white/90 backdrop-blur px-5 py-2 text-sm font-semibold"
                     onClick={async () => {
+                      if (videoRef.current) {
+                        videoRef.current.pause()
+                        try { videoRef.current.currentTime = 0 } catch {}
+                      }
                       if (recordedUrl) { URL.revokeObjectURL(recordedUrl); setRecordedUrl(null) }
                       setCapturedReps([])
                       setPayload(null)
@@ -913,30 +1522,19 @@ export default function ElevateMovementScreenPage() {
               <p className="text-sm text-muted-foreground max-w-2xl mx-auto">{pattern.blurb}</p>
             </header>
 
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <div className="space-y-6">
               <div className="space-y-4">
-                <div className="relative aspect-[9/16] sm:aspect-video overflow-hidden rounded-lg border bg-black max-h-[80dvh] sm:max-h-none">
-                  <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
-                  {!cameraReady && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-                      <div className="space-y-3 text-center text-sm text-white">
-                        <div>{isRequestingCamera ? 'Requesting camera…' : 'Camera not active'}</div>
-                        <p className="text-xs text-white/80 max-w-xs mx-auto">
-                          Grant camera access to preview movement in real time. We will overlay pose landmarks and rep guidance here.
-                        </p>
-                        {cameraError && <div className="rounded bg-red-500/80 px-3 py-1 text-xs">{cameraError}</div>}
-                      </div>
-                    </div>
-                  )}
-                  <div className="absolute bottom-2 right-2 rounded-full bg-black/70 px-3 py-1 text-[11px] uppercase tracking-wide text-white">
-                    Reps captured: {capturedReps.length}
+                {recordedUrl && (
+                  <div className="relative aspect-[9/16] sm:aspect-video overflow-hidden rounded-lg border bg-black max-h-[80dvh] sm:max-h-none">
+                    <video ref={videoRef} className="h-full w-full object-cover" playsInline muted controls={!!recordedUrl} />
                   </div>
-                </div>
+                )}
 
                 <div className="rounded-lg border bg-card p-4 space-y-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="text-sm font-semibold">Recording controls</div>
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                      {/* Camera view selection moved into pre-capture guide */}
                       {/* Hidden native camera input */}
                       <input
                         ref={fileInputRef}
@@ -950,45 +1548,32 @@ export default function ElevateMovementScreenPage() {
                         type="button"
                         className="w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium bg-[#3FAE52] text-white disabled:opacity-50"
                         disabled={isRequestingCamera || poseLoading}
-                        onClick={async () => {
-                          setRecordedUrl(null)
-                          setCapturedReps([])
-                          setPayload(null)
-                          setAnalysisResponse(null)
-                          setAnalysisError(null)
-                          // Prefer native camera full-screen on mobile
-                          if (fileInputRef.current) {
-                            fileInputRef.current.click()
-                          } else {
-                            // Fallback to in-app overlay
-                            setCameraOverlayOpen(true)
-                            await ensureCamera()
-                          }
-                        }}
+                        onClick={() => { setShowCaptureGuide(true) }}
                       >Start capture</button>
                       {/* Keep demo/testing buttons */}
                       <button
                         type="button"
-                        className="w-full sm:w-auto px-3 py-2 rounded-md border text-sm"
-                        onClick={() => {
-                          const mock = buildMockPayload()
-                          if (mock) {
-                            mock.flags.sample = true
-                            setCapturedReps(mock.reps)
-                            setPayload(mock)
-                          }
-                          setAnalysisResponse(null)
-                          setAnalysisError(null)
-                          setTimeout(() => { void runAnalysis() }, 0)
-                        }}
-                      >Mock reps</button>
+                        className="w-full sm:w-auto px-3 py-2 rounded-md border text-sm disabled:opacity-50"
+                        onClick={() => { addMockRep() }}
+                        disabled={capturedReps.length >= 10 || analysisLoading}
+                      >Add mock rep</button>
                       <button
                         type="button"
                         className="w-full sm:w-auto px-3 py-2 rounded-md border text-sm"
-                        onClick={runAnalysis}
+                        onClick={() => void runAnalysis()}
                         disabled={analysisLoading}
-                      >{analysisLoading ? 'Analyzing…' : 'Analyze sample'}</button>
+                      >{analysisLoading ? 'Analyzing…' : 'Analyze set'}</button>
+                      <button
+                        type="button"
+                        className="w-full sm:w-auto px-3 py-2 rounded-md border text-sm"
+                        onClick={handleRetake}
+                        disabled={analysisLoading}
+                      >Retake</button>
                     </div>
+                  </div>
+                  <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground">
+                    <span className="font-semibold text-foreground">Reps queued</span>
+                    <span>{capturedReps.length} / 10</span>
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {poseLoading
@@ -997,14 +1582,87 @@ export default function ElevateMovementScreenPage() {
                         ? poseError
                         : cameraOverlayOpen
                           ? 'Full-screen camera active. Use the on-screen controls.'
-                          : 'Tap Start capture to open camera. After recording, choose Use screen or Retake.'}
+                          : 'Build a mock set (Add mock rep up to 10) and click Analyze set for a full randomized analysis, or Start capture to record/upload a clip. Use Retake to reset everything and try again.'}
                   </div>
                 </div>
 
                 {/* Feature payload preview removed for end users */}
               </div>
 
-              <aside className="space-y-4">
+              <div className="space-y-4">
+                {variationCard && (
+                  <div className="rounded-lg border bg-card p-4 space-y-3">
+                    <div className="text-sm font-semibold">Detected variation</div>
+                    <VariationBadge
+                      variation={variationCard.variation}
+                      variationOriginal={variationCard.variationOriginal}
+                      coachOverride={variationCard.coachOverride}
+                      loadReadiness={variationCard.readiness}
+                      confidence={variationCard.confidence}
+                      cameraLimits={variationCard.cameraLimits}
+                      overallPass={variationCard.overallPass}
+                      overrideToggle={{
+                        active: overrideActive,
+                        onToggle: () => setOverrideActive((v) => !v),
+                        disabled: analysisLoading || (!analysisResponse && !coachAnalysis),
+                      }}
+                    />
+                    {overrideActive && variationOptions.length > 0 && (
+                      <div className="space-y-2 text-xs text-muted-foreground">
+                        <label className="flex flex-col gap-1 text-[11px] uppercase tracking-wide">
+                          <span className="font-semibold text-foreground">Coach override</span>
+                          <select
+                            className="h-9 rounded-md border border-input bg-background px-2 text-xs text-foreground"
+                            value={variationOverride}
+                            onChange={(e) => setVariationOverride(e.target.value)}
+                            disabled={analysisLoading || (!analysisResponse && !coachAnalysis)}
+                          >
+                            <option value="">Use detected variation</option>
+                            {variationOptions.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </label>
+                        {(() => {
+                          const currentFinal = variationCard.variation
+                          const hasCurrentOverride = !!(coachAnalysis?.coach_variation_override || analysisResponse?.coach_variation_override)
+                          const selected = variationOverride
+                          const changed = (selected === '' && hasCurrentOverride) || (selected !== '' && selected.trim() !== currentFinal)
+                          return (
+                            <div className="flex flex-wrap gap-2">
+                              {changed && (
+                                <button
+                                  type="button"
+                                  className="rounded-md border px-3 py-1 text-[11px] font-semibold disabled:opacity-50"
+                                  onClick={() => void runAnalysis({ override: variationOverride || null, reuseUpload: true })}
+                                  disabled={analysisLoading || (!analysisResponse && !coachAnalysis)}
+                                >
+                                  {analysisLoading ? 'Re-analyzing…' : 'Apply override'}
+                                </button>
+                              )}
+                              {hasCurrentOverride && (
+                                <button
+                                  type="button"
+                                  className="rounded-md border px-3 py-1 text-[11px] font-semibold disabled:opacity-50"
+                                  onClick={() => { setVariationOverride(''); void runAnalysis({ override: null, reuseUpload: true }) }}
+                                  disabled={analysisLoading || (!analysisResponse && !coachAnalysis)}
+                                >
+                                  Clear override
+                                </button>
+                              )}
+                            </div>
+                          )
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {(analysisResponse?.briefing || coachAnalysis?.briefing) && (
+                  <div className="rounded-lg border bg-card p-4 space-y-3">
+                    <div className="text-sm font-semibold">Coach briefing</div>
+                    <CoachBriefing briefing={(analysisResponse?.briefing ?? coachAnalysis?.briefing)!} />
+                  </div>
+                )}
                 <div className="rounded-lg border bg-card p-4 space-y-3">
                   <div className="text-sm font-semibold">KPI results</div>
                   {analysisError && <div className="rounded border border-red-300 bg-red-50 p-3 text-xs text-red-700">{analysisError}</div>}
@@ -1024,17 +1682,20 @@ export default function ElevateMovementScreenPage() {
                         const overrideValue = kpiOverrides[kpi.key]
                         const finalPass = overrideValue ?? originalPass
                         const overrideApplied = finalPass !== originalPass
-                        const desc = KPI_DESCRIPTIONS[kpi.key] ?? 'Key technique indicator for this pattern.'
-                        const noticed = (kpi.why && kpi.why.trim().length)
+                        const status = statusFromScore(kpi.score_0_3)
+                        const cuesToShow = buildCues(kpi.key, status)
+                        const positive = (status === 'ok' && kpi.why && kpi.why.trim().length > 0)
                           ? kpi.why
-                          : `${finalPass ? 'Passing' : 'Needs work'} based on current estimate. Score ${kpi.score_0_3}/3.`
+                          : buildPositive(kpi.key, status)
+                        const noticedRaw = (kpi.why && kpi.why.trim().length > 0) ? kpi.why : buildWhyFromScore(kpi.key, kpi.score_0_3)
+                        const noticed = status === 'ok' ? 'No concerns noted in this set.' : noticedRaw
                         return (
                           <div key={kpi.key} className="rounded border bg-background p-3 space-y-2 text-xs text-muted-foreground">
                           <div className="flex items-center justify-between text-sm text-foreground">
                             <span className="font-semibold uppercase tracking-wide">{kpi.key.replace(/_/g, ' ')}</span>
                             <span>{kpi.score_0_3}/3 • {finalPass ? 'Pass' : 'Needs work'}</span>
                           </div>
-                          <div className="text-[11px] text-muted-foreground">What we evaluate: {desc}</div>
+                          <div className="text-[11px] text-muted-foreground">What was good: {positive}</div>
                           <div className="text-[11px] text-muted-foreground">What we noticed: {noticed}</div>
                           <div className="flex items-center gap-2 text-xs">
                             <button
@@ -1043,8 +1704,8 @@ export default function ElevateMovementScreenPage() {
                                 finalPass
                                   ? 'border-transparent bg-emerald-500 text-white'
                                   : 'hover:bg-muted'
-                              }`}
-                              onClick={() => setKpiOverrides((prev) => ({ ...prev, [kpi.key]: true }))}
+                              } ${kpiOverrideActive[kpi.key] ? '' : 'pointer-events-none opacity-60'}`}
+                              onClick={() => kpiOverrideActive[kpi.key] && setKpiOverrides((prev) => ({ ...prev, [kpi.key]: true }))}
                             >Pass</button>
                             <button
                               type="button"
@@ -1052,17 +1713,32 @@ export default function ElevateMovementScreenPage() {
                                 finalPass
                                   ? 'hover:bg-muted'
                                   : 'border-transparent bg-amber-500 text-white'
-                              }`}
-                              onClick={() => setKpiOverrides((prev) => ({ ...prev, [kpi.key]: false }))}
+                              } ${kpiOverrideActive[kpi.key] ? '' : 'pointer-events-none opacity-60'}`}
+                              onClick={() => kpiOverrideActive[kpi.key] && setKpiOverrides((prev) => ({ ...prev, [kpi.key]: false }))}
                             >Needs work</button>
                             {overrideApplied && (
                               <span className="rounded bg-amber-200/70 px-2 py-0.5 text-[11px] font-semibold text-amber-900">Coach override</span>
                             )}
+                            <button
+                              type="button"
+                              className={`ml-auto inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                                kpiOverrideActive[kpi.key]
+                                  ? 'border-transparent bg-indigo-600 text-white'
+                                  : 'border-muted bg-background text-muted-foreground hover:bg-muted/70'
+                              }`}
+                              onClick={() => setKpiOverrideActive((prev) => ({ ...prev, [kpi.key]: !prev[kpi.key] }))}
+                              disabled={analysisLoading}
+                            >
+                              <span>Coach override</span>
+                              <span className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${kpiOverrideActive[kpi.key] ? 'bg-white/80' : 'bg-muted-foreground/30'}`}>
+                                <span className={`absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-indigo-600 transition-transform ${kpiOverrideActive[kpi.key] ? 'translate-x-3' : 'translate-x-0'}`} />
+                              </span>
+                            </button>
                           </div>
-                          <div>{kpi.why}</div>
-                          {kpi.cues.length > 0 && (
+                          {/* Standardized notice is already shown above */}
+                          {cuesToShow.length > 0 && (
                             <ul className="list-disc pl-4 space-y-0.5 text-muted-foreground/90">
-                              {kpi.cues.map((cue, idx) => (
+                              {cuesToShow.map((cue, idx) => (
                                 <li key={idx}>{cue}</li>
                               ))}
                             </ul>
@@ -1080,11 +1756,62 @@ export default function ElevateMovementScreenPage() {
                   {analysisLoading && <div className="text-xs text-muted-foreground">Analyzing movement…</div>}
                 </div>
 
+                {(repSummary || repInsights) && (
+                  <div className="rounded-lg border bg-card p-4 space-y-3">
+                    <div className="text-sm font-semibold">Rep-by-rep insights</div>
+                    {repSummary && (
+                      <div className="rounded border bg-background p-3 text-xs text-muted-foreground">
+                        <div className="font-semibold text-foreground">Set view</div>
+                        <div>{repSummary.overall}</div>
+                      </div>
+                    )}
+                    {repSummary?.segments && repSummary.segments.length > 0 && (
+                      <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+                        {repSummary.segments.map((seg) => (
+                          <div key={seg.segment} className="rounded border bg-background p-3 space-y-1">
+                            <div className="flex items-center justify-between text-[11px] uppercase tracking-wide">
+                              <span className="font-semibold text-foreground">{seg.segment}</span>
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${REP_STATUS_BADGE[seg.dominant_status]}`}>
+                                {REP_STATUS_LABELS[seg.dominant_status]}
+                              </span>
+                            </div>
+                            <div className="text-muted-foreground whitespace-pre-line">{seg.summary}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {repInsights && (
+                      <div className="space-y-2 text-xs text-muted-foreground">
+                        {repInsights.map((rep) => (
+                          <div key={rep.rep_index} className="rounded border bg-background p-3 flex flex-col gap-1">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-foreground">Rep {rep.rep_index}</span>
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${REP_STATUS_BADGE[rep.status]}`}>
+                                {REP_STATUS_LABELS[rep.status]}
+                              </span>
+                            </div>
+                            <div>{rep.key_findings}</div>
+                            {rep.focus_next_rep && (
+                              <div className="text-muted-foreground/80">Next rep focus: {rep.focus_next_rep}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {coachAnalysis && (
+                  <div className="rounded-lg border bg-card p-4 space-y-3">
+                    <div className="text-sm font-semibold">KPI overview</div>
+                    <KpiCards kpis={coachAnalysis.kpis} />
+                    <CoachBriefing briefing={coachAnalysis.briefing} />
+                  </div>
+                )}
+
                 <div className="rounded-lg border bg-card p-4 space-y-3">
                   <div className="text-sm font-semibold">Next actions</div>
-                  <p className="text-xs text-muted-foreground">
-                    Provide buttons to Save, Save & Apply to Elevation Map, or retake the screen. When saving, persist to Supabase and invoke `/api/elevation/fuse`.
-                  </p>
+                  <p className="text-xs text-muted-foreground">Save and apply this screen to the client’s Elevation Map. You can retake from the controls above to capture a new set.</p>
                   {saveError && <div className="rounded border border-red-300 bg-red-50 p-3 text-xs text-red-700">{saveError}</div>}
                   {saveSuccess && <div className="rounded border border-emerald-300 bg-emerald-50 p-3 text-xs text-emerald-700">{saveSuccess}</div>}
                   <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">
@@ -1092,21 +1819,81 @@ export default function ElevateMovementScreenPage() {
                       type="button"
                       className="h-10 rounded-md bg-[#3FAE52] text-white text-sm font-semibold disabled:opacity-60 w-full sm:w-auto"
                       disabled={saveLoading || !analysisResponse}
-                      onClick={() => void saveScreen(false)}
-                    >{saveLoading ? 'Saving…' : 'Save screen'}</button>
-                    <button
-                      type="button"
-                      className="h-10 rounded-md border text-sm disabled:opacity-60 w-full sm:w-auto"
-                      disabled={saveLoading || !analysisResponse}
                       onClick={() => void saveScreen(true)}
                     >{saveLoading ? 'Syncing…' : 'Save & apply to plan'}</button>
-                    <button type="button" className="h-10 rounded-md border text-sm w-full sm:w-auto">Retake</button>
                   </div>
                 </div>
-              </aside>
+              </div>
             </div>
           </div>
         </div>
+        {showCaptureGuide && (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+            <div className="w-full max-w-lg rounded-lg border bg-card text-card-foreground shadow-xl">
+              <div className="p-4 border-b">
+                <div className="text-sm font-semibold">Setup capture</div>
+                <div className="text-xs text-muted-foreground">Follow these steps for the most accurate analysis.</div>
+              </div>
+              <div className="p-4 space-y-4">
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold">Recommended angle</div>
+                  <div className="space-y-2">
+                    {(CAPTURE_GUIDES[patternKey]?.angles ?? []).map((opt: { value: 'front'|'front45'|'side'; label: string; benefit: string }) => (
+                      <label key={opt.value} className="flex items-start gap-2 text-xs">
+                        <input
+                          type="radio"
+                          className="mt-0.5"
+                          name="angle"
+                          value={opt.value}
+                          checked={guideAngle === opt.value}
+                          onChange={() => setGuideAngle(opt.value)}
+                        />
+                        <span>
+                          <span className="font-semibold">{opt.label}</span>
+                          <span className="block text-muted-foreground">{opt.benefit}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold">Steps</div>
+                  <ol className="list-decimal pl-5 space-y-1 text-xs text-muted-foreground">
+                    {(CAPTURE_GUIDES[patternKey]?.steps ?? []).map((s: string, i: number) => (
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ol>
+                </div>
+              </div>
+              <div className="p-4 border-t flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-md border px-4 py-2 text-sm"
+                  onClick={() => setShowCaptureGuide(false)}
+                >Cancel</button>
+                <button
+                  type="button"
+                  className="rounded-md bg-[#3FAE52] text-white px-4 py-2 text-sm font-semibold"
+                  onClick={async () => {
+                    setCameraView(guideAngle)
+                    setShowCaptureGuide(false)
+                    setRecordedUrl(null)
+                    setCapturedReps([])
+                    setPayload(null)
+                    setAnalysisResponse(null)
+                    setAnalysisError(null)
+                    if (fileInputRef.current) {
+                      fileInputRef.current.click()
+                    } else {
+                      setCameraOverlayOpen(true)
+                      await ensureCamera()
+                    }
+                  }}
+                >Start</button>
+              </div>
+            </div>
+          </div>
+        )}
       </Layout>
     </RequireTrainer>
   )
