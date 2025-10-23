@@ -1517,7 +1517,14 @@ export default function ElevateMovementScreenPage() {
               <div className="space-y-4">
                 {recordedUrl && (
                   <div className="relative aspect-[9/16] sm:aspect-video overflow-hidden rounded-lg border bg-black max-h-[80dvh] sm:max-h-none">
-                    <video ref={videoRef} className="h-full w-full object-cover" playsInline muted controls={!!recordedUrl} />
+                    <video
+                      ref={videoRef}
+                      className="h-full w-full object-cover"
+                      playsInline
+                      muted
+                      controls={!!recordedUrl}
+                      src={recordedUrl ?? undefined}
+                    />
                   </div>
                 )}
 
